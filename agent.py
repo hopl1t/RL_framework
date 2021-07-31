@@ -45,7 +45,7 @@ class A2CAgent:
         """
         if torch.cuda.is_available():
             device = torch.device('cuda')
-            sys.stdout.write('Using CUDA')
+            sys.stdout.write('Using CUDA\n')
         else:
             device = torch.device('cpu')
             sys.stdout.write('Using CPU\n')

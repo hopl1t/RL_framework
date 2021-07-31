@@ -73,7 +73,7 @@ class AsyncEnvGen(threading.Thread):
         self.q = queue.Queue()
         self._kill = threading.Event()
         self.env_idx = 0
-        # self.sleep_interval = 0.5
+        self.sleep_interval = 0.01
 
     def run(self):
         while not self._kill.is_set():
@@ -83,8 +83,8 @@ class AsyncEnvGen(threading.Thread):
                 self.env_idx += 1
                 if self.env_idx == len(self.envs):
                     self.env_idx = 0
-            # else:
-            #     time.sleep(self.sleep_interval)
+            else:
+                time.sleep(self.sleep_interval)
 
     def kill(self):
         self._kill.set()
