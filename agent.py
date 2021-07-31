@@ -114,6 +114,7 @@ class A2CAgent:
             ac_loss.backward()
             optimizer.step()
 
+        env_gen.kill()
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
         self.save_and_log()
 
@@ -174,9 +175,11 @@ def main(raw_args):
         log_path = os.path.join(args.log_dir, '{0}_{1}_{2}.log'.format(args.model, args.env, timestamp))
         agent = A2CAgent(model, save_path, log_path)
 
-    agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
-                args.discount_gamma, args.scheduler_gamma, args.beta)
-
+    try:
+        agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
+                    args.discount_gamma, args.scheduler_gamma, args.beta)
+    except Exception as e:
+        env_gen.kill()
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))
