@@ -1,7 +1,6 @@
 import argparse
 import sys
 import os
-
 import gym
 import numpy as np
 import torch
@@ -20,21 +19,24 @@ class A2CAgent:
     Can train or perform actions
     """
 
-    def __init__(self, model, env_gen, save_path, **kwargs):
+    def __init__(self, model, save_path, log_path, **kwargs):
         self.model = model
-        self.env_gen = env_gen
         self.env = gym.Env
         self.kwargs = kwargs
         self.save_path = save_path
+        self.log_path = log_path
         self.all_lengths = []
         self.average_lengths = []
         self.all_rewards = []
+        self.log_buffer = []
 
-    def train(self, epochs: int, trajectory_len: int, lr=1e-4, discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3):
+    def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
+              discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3):
         """
         Trains the model
         :param epochs: int, number of epochs to run
         :param trajectory_len: int, maximal length of a single trajectory
+        :param env_gen: AsyncEnvGen, generates environments asynchronicaly
         :param lr: float, learning rate
         :param discount_gamma: float, discount factor
         :param scheduler_gamma: float, LR decay factor
@@ -54,13 +56,13 @@ class A2CAgent:
         scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=scheduler_gamma)
         entropy_term = torch.zeros(1).to(device)
 
-        self.env_gen.start()
+        env_gen.start()
 
         for episode in range(epochs):
             log_probs = []
             values = []
             rewards = []
-            state, self.env = self.env_gen.q.get()
+            state, self.env = env_gen.q.get()
             for step in range(trajectory_len):
                 value, policy_dist = self.model.forward(state)
                 value = value.detach().item()
@@ -68,10 +70,11 @@ class A2CAgent:
                 action = torch.multinomial(dist, 1).item()
                 log_prob = torch.log(policy_dist.squeeze(0)[action])
                 entropy = Categorical(probs=dist).entropy()
-                new_state, reward, done, _ = self.env.step(action)
+                new_state, reward, done, info = self.env.step(action)
                 rewards.append(reward)
                 values.append(value)
                 log_probs.append(log_prob)
+                self.log_buffer.append(info.__repr__() + '\n')
                 entropy_term += entropy
                 state = new_state
 
@@ -87,10 +90,10 @@ class A2CAgent:
                             .format(episode, np.sum(rewards), step, self.average_lengths[-1]))
                     if (episode % 1000 == 0) and (episode != 0):
                         scheduler.step()
-                        sys.stdout.write('steped scheduler, new lr: {:.5f}\n'.format(scheduler.get_last_lr()[0]))
+                        sys.stdout.write('stepped scheduler, new lr: {:.5f}\n'.format(scheduler.get_last_lr()[0]))
 
                     if (episode % 10000 == 0) and (episode != 0):
-                        self.save()
+                        self.save_and_log()
                     # step = trajectory_len + 1
                     break
 
@@ -111,13 +114,16 @@ class A2CAgent:
             ac_loss.backward()
             optimizer.step()
 
-        sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10)
-        self.save()
+        sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
+        self.save_and_log()
 
-    def save(self):
+    def save_and_log(self):
         with open(self.save_path, 'wb') as f:
             pickle.dump(self, f)
-        sys.stdout.write('Saved agent to {}'.format(self.save_path))
+        with open(self.log_path, 'a') as f:
+            _ = f.writelines(self.log_buffer)
+            self.log_buffer = []
+        sys.stdout.write('Saved agent to {}\nLogged info to {}'.format(self.save_path, self.log_path))
 
     def act(self, state):
         self.model.eval()
@@ -140,6 +146,8 @@ def main(raw_args):
     parser.add_argument(
         '-save_dir', type=str, nargs='?', help='Path to save and load the agent. Defaults to ./saved_agents',
         default='./saved_agents')
+    parser.add_argument(
+        '-log_dir', type=str, nargs='?', help='Path to save log files. Defaults to ./logs', default='./logs')
     parser.add_argument('-obs_type', type=str, nargs='?',
                         help='Type of observation to use - either REGULAR, ROOM_STATE_VECTOR or ROOM_STATE_MATRIX',
                         default='REGULAR')
@@ -153,19 +161,21 @@ def main(raw_args):
     parser.add_argument('-beta', type=float, nargs='?', help='Info loss factor', default=1e-3)
 
     args = parser.parse_args(raw_args)
+    envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], [i for i in range(args.valid_actions)])
+            for _ in range(3)]
+    env_gen = utils.AsyncEnvGen(envs)
     if args.load:
         with open(args.load, 'rb') as f:
             agent = pickle.load(f)
     else:
-        envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], [i for i in range(args.valid_actions)])
-                for _ in range(3)]
-        env_gen = utils.AsyncEnvGen(envs)
         model = getattr(models, args.model)(envs[0].obs_size, envs[0].num_actions)
         timestamp = datetime.now().strftime('%y%m%d%H%m')
         save_path = os.path.join(args.save_dir, '{0}_{1}_{2}.pkl'.format(args.model, args.env, timestamp))
-        agent = A2CAgent(model, env_gen, save_path)
+        log_path = os.path.join(args.log_dir, '{0}_{1}_{2}.log'.format(args.model, args.env, timestamp))
+        agent = A2CAgent(model, save_path, log_path)
 
-    agent.train(args.epochs, args.trajectory_len, args.lr, args.discount_gamma, args.scheduler_gamma, args.beta)
+    agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
+                args.discount_gamma, args.scheduler_gamma, args.beta)
 
 
 if __name__ == '__main__':
