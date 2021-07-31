@@ -114,9 +114,11 @@ class A2CAgent:
             ac_loss.backward()
             optimizer.step()
 
-        env_gen.kill()
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
+        env_gen.kill()
+        sys.stdout.write('Killed env gen thread\n')
         self.save_and_log()
+
 
     def save_and_log(self):
         with open(self.save_path, 'wb') as f:
@@ -135,8 +137,7 @@ class A2CAgent:
 
 
 def main(raw_args):
-    parser = argparse.ArgumentParser(
-        description='Creates or load an agent and then trains it')
+    parser = argparse.ArgumentParser(description='Creates or load an agent and then trains it')
     parser.add_argument(
         '-load', type=str, nargs='?', help='Weather or not to load an existing agent from the specified path.\n'
                                            'In case of loading all other arguments are ignored')
@@ -152,19 +153,21 @@ def main(raw_args):
     parser.add_argument('-obs_type', type=str, nargs='?',
                         help='Type of observation to use - either REGULAR, ROOM_STATE_VECTOR or ROOM_STATE_MATRIX',
                         default='REGULAR')
-    parser.add_argument('-valid_actions', type=int, nargs='?',
-                        help='Number of actions to use. defaults to all of the env\'s actions', default=0)
+    parser.add_argument('-action_type', type=str, nargs='?',
+                        help='Type of action to use - wither REGULAR, PUSH_ONLY, PUSH_PULL', default='REGULAR')
     parser.add_argument('-epochs', type=int, nargs='?', help='Num epochs (episodes) to train', default=3000)
     parser.add_argument('-trajectory_len', type=int, nargs='?', help='Maximal length of single trajectory', default=300)
     parser.add_argument('-lr', type=float, nargs='?', help='Learning rate', default=3e-4)
     parser.add_argument('-discount_gamma', type=float, nargs='?', help='Discount factor', default=0.99)
     parser.add_argument('-scheduler_gamma', type=float, nargs='?', help='Scheduling factor', default=0.999)
     parser.add_argument('-beta', type=float, nargs='?', help='Info loss factor', default=1e-3)
+    parser.add_argument('-async_sleep_interval', type=float, nargs='?', help='How long should the env gen thread sleep',
+                        default=1e-2)
 
     args = parser.parse_args(raw_args)
-    envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], [i for i in range(args.valid_actions)])
+    envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], utils.ActionType[args.action_type])
             for _ in range(3)]
-    env_gen = utils.AsyncEnvGen(envs)
+    env_gen = utils.AsyncEnvGen(envs, args.async_sleep_interval)
     if args.load:
         with open(args.load, 'rb') as f:
             agent = pickle.load(f)
@@ -180,6 +183,8 @@ def main(raw_args):
                     args.discount_gamma, args.scheduler_gamma, args.beta)
     except Exception as e:
         env_gen.kill()
+        sys.stdout.write('Killed env gen thread\n')
+
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))

@@ -12,12 +12,18 @@ class ObsType(Enum):
     ROOM_STATE_MATRIX = 3
 
 
+class ActionType(Enum):
+    REGULAR = 1
+    PUSH_ONLY = 2
+    PUSH_PULL = 3
+
+
 class EnvWrapper():
     """
     Wrapps a Sokoban gym environment s.t. we can use the room_state property instead of regular state
     """
 
-    def __init__(self, env_name, obs_type=ObsType.REGULAR, valid_actions=[], *args, **kwargs):
+    def __init__(self, env_name, obs_type=ObsType.REGULAR, action_type=ActionType.REGULAR, *args, **kwargs):
         """
         Wraps a gym environment s.t. you can control it's input and output
         :param env_name: str, The environments name
@@ -28,28 +34,36 @@ class EnvWrapper():
         """
         self.obs_type = obs_type
         self.env = gym.make(env_name)
-        self.valid_actions = valid_actions
+        self.action_type = action_type
         if obs_type == ObsType.REGULAR:
             self.obs_size = self.env.observation_space.shape[0]
         elif obs_type == ObsType.ROOM_STATE_VECTOR:
             self.obs_size = self.env.room_state.shape[0] ** 2
         elif obs_type == ObsType.ROOM_STATE_MATRIX:
             self.obs_size = self.env.observation_space.shape[0]
-        if valid_actions:
-            self.num_actions = len(valid_actions)
-        else:
+        if action_type == ActionType.REGULAR:
             self.num_actions = self.env.action_space.n
+        elif action_type == ActionType.PUSH_ONLY:
+            self.num_actions = 4
+        elif action_type == ActionType.PUSH_PULL:
+            self.num_actions = 8
 
     def reset(self):
         obs = self.env.reset()
         return self.process_obs(obs)
 
     def step(self, action):
-        if self.valid_actions:
-            # +1 is a temporary fix cause 0 is NOP and we only want actions 1,2,3,4 is Sokoban push only
-            obs, reward, done, info = self.env.step(action + 1)
-        else:
-            obs, reward, done, info = self.env.step(action)
+        if self.action_type == ActionType.REGULAR:
+            pass
+        elif self.action_type == ActionType.PUSH_ONLY:
+            # maps from 0-3 to 1-4 since 0 is NOP
+            action += 1
+        elif self.action_type == ActionType.PUSH_PULL:
+            # maps from 0-7 to [1,2,3,4,9,10,11,12]
+            action += 1
+            if action >= 5:
+                action += 4
+        obs, reward, done, info = self.env.step(action)
         obs = self.process_obs(obs)
         return obs, reward, done, info
 
@@ -67,13 +81,13 @@ class AsyncEnvGen(threading.Thread):
     Creates and manages gym environments a-synchroneuosly
     This is used to save time on env.reset() command while playing a game
     """
-    def __init__(self, envs):
+    def __init__(self, envs, sleep_interval):
         super(AsyncEnvGen, self).__init__()
         self.envs = envs
         self.q = queue.Queue()
         self._kill = threading.Event()
         self.env_idx = 0
-        self.sleep_interval = 0.01
+        self.sleep_interval = sleep_interval
 
     def run(self):
         while not self._kill.is_set():
@@ -83,7 +97,7 @@ class AsyncEnvGen(threading.Thread):
                 self.env_idx += 1
                 if self.env_idx == len(self.envs):
                     self.env_idx = 0
-            else:
+            elif self.sleep_interval != 0:
                 time.sleep(self.sleep_interval)
 
     def kill(self):
