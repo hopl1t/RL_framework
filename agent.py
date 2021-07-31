@@ -1,6 +1,8 @@
 import argparse
 import sys
 import os
+
+import gym
 import numpy as np
 import torch
 from torch.distributions import Categorical
@@ -12,44 +14,53 @@ import pickle
 from datetime import datetime
 
 
-class A2CAgent():
+class A2CAgent:
     """
     Holds a model, an environment and a training session
     Can train or perform actions
     """
 
-    def __init__(self, model, env, save_path, **kwargs):
+    def __init__(self, model, env_gen, save_path, **kwargs):
         self.model = model
-        self.env = env
+        self.env_gen = env_gen
+        self.env = gym.Env
         self.kwargs = kwargs
         self.save_path = save_path
         self.all_lengths = []
         self.average_lengths = []
         self.all_rewards = []
 
-    def train(self, epochs: int, trajectory_len: int, lr=1e-4, discount_gamma=0.99, scheduler_gamma=0.999, beta=1e-3):
+    def train(self, epochs: int, trajectory_len: int, lr=1e-4, discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3):
         """
-        Trains the model in the given environment
-        :param epochs: max epochs (episodes) to train
-        :param trajectory_len: maximal length of a single trajectory
+        Trains the model
+        :param epochs: int, number of epochs to run
+        :param trajectory_len: int, maximal length of a single trajectory
+        :param lr: float, learning rate
+        :param discount_gamma: float, discount factor
+        :param scheduler_gamma: float, LR decay factor
+        :param beta: float, information gain factor
         :return:
         """
         if torch.cuda.is_available():
             device = torch.device('cuda')
+            sys.stdout.write('Using CUDA')
         else:
             device = torch.device('cpu')
+            sys.stdout.write('Using CPU\n')
         self.model.to(device)
         self.model.device = device
         self.model.train()
-        optimizer = optim.Adam(self.model.parameters(), lr=lr, betas=(0.5, 0.999))
+        optimizer = optim.Adam(self.model.parameters(), lr=lr)
         scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=scheduler_gamma)
         entropy_term = torch.zeros(1).to(device)
+
+        self.env_gen.start()
 
         for episode in range(epochs):
             log_probs = []
             values = []
             rewards = []
-            state = self.env.reset()
+            state, self.env = self.env_gen.q.get()
             for step in range(trajectory_len):
                 value, policy_dist = self.model.forward(state)
                 value = value.detach().item()
@@ -73,8 +84,8 @@ class A2CAgent():
                     if episode % 10 == 0:
                         sys.stdout.write(
                             "episode: {}, reward: {}, total length: {}, average length: {} \n"
-                                .format(episode, np.sum(rewards), step, self.average_lengths[-1]))
-                    if (episode % 100 == 0) and (episode != 0):
+                            .format(episode, np.sum(rewards), step, self.average_lengths[-1]))
+                    if (episode % 1000 == 0) and (episode != 0):
                         scheduler.step()
                         sys.stdout.write('steped scheduler, new lr: {:.5f}\n'.format(scheduler.get_last_lr()[0]))
 
@@ -100,7 +111,7 @@ class A2CAgent():
             ac_loss.backward()
             optimizer.step()
 
-        print('-' * 10, ' Finished training ', '-' * 10)
+        sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10)
         self.save()
 
     def save(self):
@@ -146,11 +157,13 @@ def main(raw_args):
         with open(args.load, 'rb') as f:
             agent = pickle.load(f)
     else:
-        env = utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], [i for i in range(args.valid_actions)])
-        model = getattr(models, args.model)(env.obs_size, env.num_actions)
+        envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], [i for i in range(args.valid_actions)])
+                for _ in range(3)]
+        env_gen = utils.AsyncEnvGen(envs)
+        model = getattr(models, args.model)(envs[0].obs_size, envs[0].num_actions)
         timestamp = datetime.now().strftime('%y%m%d%H%m')
         save_path = os.path.join(args.save_dir, '{0}_{1}_{2}.pkl'.format(args.model, args.env, timestamp))
-        agent = A2CAgent(model, env, save_path)
+        agent = A2CAgent(model, env_gen, save_path)
 
     agent.train(args.epochs, args.trajectory_len, args.lr, args.discount_gamma, args.scheduler_gamma, args.beta)
 

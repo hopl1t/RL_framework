@@ -1,6 +1,9 @@
 import gym
 import gym_sokoban
 from enum import Enum
+import threading
+import queue
+import time
 
 
 class ObsType(Enum):
@@ -57,3 +60,30 @@ class EnvWrapper():
             return self.env.room_state.flatten()
         elif self.obs_type == ObsType.ROOM_STATE_MATRIX:
             return self.env.room_state
+
+class AsyncEnvGen(threading.Thread):
+    """
+    Creates and manages two gym environments a-synchroneuosly
+    This is used to save time on env.reset() command while playing a game
+    """
+    def __init__(self, envs):
+        super(AsyncEnvGen, self).__init__()
+        self.envs = envs
+        self.q = queue.Queue()
+        self._kill = threading.Event()
+        self.env_idx = 0
+        self.sleep_interval = 0.5
+
+    def run(self):
+        while not self._kill.is_set():
+            if self.q.qsize() < len(self.envs) - 1:
+                state = self.envs[self.env_idx].reset()
+                self.q.put((state, self.envs[self.env_idx]))
+                self.env_idx += 1
+                if self.env_idx == len(self.envs):
+                    self.env_idx = 0
+            else:
+                time.sleep(self.sleep_interval)
+
+    def kill(self):
+        self._kill.set()

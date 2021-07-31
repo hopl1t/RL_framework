@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 HIDDEN_SIZE = 256
 
+
 class SimpleActorCritic(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size=HIDDEN_SIZE, device=torch.device('cpu')):
         super(SimpleActorCritic, self).__init__()
@@ -24,4 +25,3 @@ class SimpleActorCritic(nn.Module):
         policy_dist = F.softmax(self.actor_linear2(policy_dist), dim=1)
 
         return value, policy_dist
-
