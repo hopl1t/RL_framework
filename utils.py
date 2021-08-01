@@ -1,10 +1,10 @@
 import gym
 import gym_sokoban
 from enum import Enum
-import threading
-import queue
+# import threading
+# import queue
 import time
-
+import multiprocessing as mp
 
 class ObsType(Enum):
     REGULAR = 1
@@ -76,7 +76,8 @@ class EnvWrapper():
             return self.env.room_state
 
 
-class AsyncEnvGen(threading.Thread):
+# class AsyncEnvGen(threading.Thread):
+class AsyncEnvGen(mp.Process):
     """
     Creates and manages gym environments a-synchroneuosly
     This is used to save time on env.reset() command while playing a game
@@ -84,14 +85,14 @@ class AsyncEnvGen(threading.Thread):
     def __init__(self, envs, sleep_interval):
         super(AsyncEnvGen, self).__init__()
         self.envs = envs
-        self.q = queue.Queue()
-        self._kill = threading.Event()
+        self.q = mp.Queue(len(self.envs) - 1)
+        self._kill = mp.Event()
         self.env_idx = 0
         self.sleep_interval = sleep_interval
 
     def run(self):
         while not self._kill.is_set():
-            if self.q.qsize() < len(self.envs) - 1:
+            if not self.q.full():
                 state = self.envs[self.env_idx].reset()
                 self.q.put((state, self.envs[self.env_idx]))
                 self.env_idx += 1
@@ -99,6 +100,8 @@ class AsyncEnvGen(threading.Thread):
                     self.env_idx = 0
             elif self.sleep_interval != 0:
                 time.sleep(self.sleep_interval)
+        self.q.close()
+        self.q.cancel_join_thread()
 
     def kill(self):
         self._kill.set()

@@ -116,9 +116,10 @@ class A2CAgent:
 
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
         env_gen.kill()
+        env_gen.q.cancel_join_thread()
+        env_gen.join(1)
         sys.stdout.write('Killed env gen thread\n')
         self.save_and_log()
-
 
     def save_and_log(self):
         with open(self.save_path, 'wb') as f:
@@ -183,6 +184,7 @@ def main(raw_args):
                     args.discount_gamma, args.scheduler_gamma, args.beta)
     except Exception as e:
         env_gen.kill()
+        env_gen.join(1)
         sys.stdout.write('Killed env gen thread\n')
 
 
