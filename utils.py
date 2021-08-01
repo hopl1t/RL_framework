@@ -18,6 +18,13 @@ class ActionType(Enum):
     PUSH_PULL = 3
 
 
+def kill_process(p):
+    if p.is_alive():
+        p.q.cancel_join_thread()
+        p.kill()
+        p.join(1)
+
+
 class EnvWrapper():
     """
     Wrapps a Sokoban gym environment s.t. we can use the room_state property instead of regular state
@@ -102,6 +109,13 @@ class AsyncEnvGen(mp.Process):
                 time.sleep(self.sleep_interval)
         self.q.close()
         self.q.cancel_join_thread()
+
+    def get_reset_env(self):
+        if self.is_alive():
+            return self.q.get()
+        else:
+            state = self.envs[0].reset()
+            return state, self.envs[0]
 
     def kill(self):
         self._kill.set()

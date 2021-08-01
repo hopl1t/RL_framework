@@ -56,13 +56,11 @@ class A2CAgent:
         scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=scheduler_gamma)
         entropy_term = torch.zeros(1).to(device)
 
-        env_gen.start()
-
         for episode in range(epochs):
             log_probs = []
             values = []
             rewards = []
-            state, self.env = env_gen.q.get()
+            state, self.env = env_gen.get_reset_env()
             for step in range(trajectory_len):
                 value, policy_dist = self.model.forward(state)
                 value = value.detach().item()
@@ -115,10 +113,8 @@ class A2CAgent:
             optimizer.step()
 
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
-        env_gen.kill()
-        env_gen.q.cancel_join_thread()
-        env_gen.join(1)
-        sys.stdout.write('Killed env gen thread\n')
+        utils.kill_process(env_gen)
+        sys.stdout.write('Killed env gen process\n')
         self.save_and_log()
 
     def save_and_log(self):
@@ -142,6 +138,9 @@ def main(raw_args):
     parser.add_argument(
         '-load', type=str, nargs='?', help='Weather or not to load an existing agent from the specified path.\n'
                                            'In case of loading all other arguments are ignored')
+    parser.add_argument(
+        '-async_env', action='store_true', help='Flag. If present use async environment generation, else don\'t',
+        default=False)
     parser.add_argument(
         '-env', type=str, nargs='?', help='desired gym environment, example: "Pong-v0"')
     parser.add_argument(
@@ -180,12 +179,13 @@ def main(raw_args):
         agent = A2CAgent(model, save_path, log_path)
 
     try:
+        if args.async_env:
+            env_gen.start()
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
                     args.discount_gamma, args.scheduler_gamma, args.beta)
-    except Exception as e:
-        env_gen.kill()
-        env_gen.join(1)
-        sys.stdout.write('Killed env gen thread\n')
+    finally:
+        utils.kill_process(env_gen)
+        sys.stdout.write('Killed env gen process\n')
 
 
 if __name__ == '__main__':
