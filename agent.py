@@ -188,6 +188,8 @@ def main(raw_args):
                     args.discount_gamma, args.scheduler_gamma, args.beta)
     finally:
         utils.kill_process(env_gen)
+        if env_gen.is_alive():
+            env_gen.terminate()
         sys.stdout.write('Killed env gen process\n')
 
 

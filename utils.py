@@ -47,7 +47,7 @@ class EnvWrapper():
         elif obs_type == ObsType.ROOM_STATE_VECTOR:
             self.obs_size = self.env.room_state.shape[0] ** 2
         elif obs_type == ObsType.ROOM_STATE_MATRIX:
-            self.obs_size = self.env.observation_space.shape[0]
+            self.obs_size = self.env.room_state.shape[0]
         if action_type == ActionType.REGULAR:
             self.num_actions = self.env.action_space.n
         elif action_type == ActionType.PUSH_ONLY:
@@ -83,7 +83,6 @@ class EnvWrapper():
             return self.env.room_state
 
 
-# class AsyncEnvGen(threading.Thread):
 class AsyncEnvGen(mp.Process):
     """
     Creates and manages gym environments a-synchroneuosly

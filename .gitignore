@@ -1,4 +1,5 @@
 .idea
 logs
 saved_agents
-__pycache__
+__pycache__/
+*.py[cod]
