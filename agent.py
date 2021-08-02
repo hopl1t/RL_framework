@@ -181,6 +181,7 @@ def main(raw_args):
     try:
         if args.async_env:
             env_gen.start()
+            sys.stdout.write('Started async env_gen process..\n')
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
                     args.discount_gamma, args.scheduler_gamma, args.beta)
     finally:
