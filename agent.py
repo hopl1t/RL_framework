@@ -163,10 +163,12 @@ def main(raw_args):
     parser.add_argument('-beta', type=float, nargs='?', help='Info loss factor', default=1e-3)
     parser.add_argument('-async_sleep_interval', type=float, nargs='?', help='How long should the env gen thread sleep',
                         default=1e-2)
+    parser.add_argument('-num_envs', type=int, nargs='?', help='Number of async envs to use if using async_env.'
+                                                               ' default 2', default=2)
 
     args = parser.parse_args(raw_args)
     envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], utils.ActionType[args.action_type])
-            for _ in range(3)]
+            for _ in range(args.num_envs)]
     env_gen = utils.AsyncEnvGen(envs, args.async_sleep_interval)
     if args.load:
         with open(args.load, 'rb') as f:
