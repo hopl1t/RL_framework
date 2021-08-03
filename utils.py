@@ -1,21 +1,25 @@
 import gym
-import gym_sokoban
 from enum import Enum
-# import threading
-# import queue
 import time
 import multiprocessing as mp
+import torch
+from torch.distributions import Categorical, Normal
+import gym_sokoban
+
 
 class ObsType(Enum):
     REGULAR = 1
     ROOM_STATE_VECTOR = 2
     ROOM_STATE_MATRIX = 3
+    BOX2D = 4
 
 
 class ActionType(Enum):
     REGULAR = 1
     PUSH_ONLY = 2
     PUSH_PULL = 3
+    GAUSSIAN = 4
+    DISCRETIZIED = 5
 
 
 def kill_process(p):
@@ -25,12 +29,12 @@ def kill_process(p):
         p.join(1)
 
 
-class EnvWrapper():
+class EnvWrapper:
     """
     Wrapps a Sokoban gym environment s.t. we can use the room_state property instead of regular state
     """
 
-    def __init__(self, env_name, obs_type=ObsType.REGULAR, action_type=ActionType.REGULAR, *args, **kwargs):
+    def __init__(self, env_name, obs_type=ObsType.REGULAR, action_type=ActionType.REGULAR, max_steps=300, **kwargs):
         """
         Wraps a gym environment s.t. you can control it's input and output
         :param env_name: str, The environments name
@@ -41,19 +45,34 @@ class EnvWrapper():
         """
         self.obs_type = obs_type
         self.env = gym.make(env_name)
+        self.env.max_steps = max_steps
         self.action_type = action_type
+        self.num_discrete = 0
+        self.discrete_array = torch.FloatTensor()
         if obs_type == ObsType.REGULAR:
             self.obs_size = self.env.observation_space.shape[0]
         elif obs_type == ObsType.ROOM_STATE_VECTOR:
             self.obs_size = self.env.room_state.shape[0] ** 2
         elif obs_type == ObsType.ROOM_STATE_MATRIX:
             self.obs_size = self.env.room_state.shape[0]
+        elif obs_type == ObsType.BOX2D:
+            self.obs_size = self.env.observation_space.shape[0]
+
         if action_type == ActionType.REGULAR:
             self.num_actions = self.env.action_space.n
         elif action_type == ActionType.PUSH_ONLY:
             self.num_actions = 4
         elif action_type == ActionType.PUSH_PULL:
             self.num_actions = 8
+        elif action_type == ActionType.GAUSSIAN:
+            self.num_actions = self.env.action_space.shape[0]
+        elif action_type == ActionType.DISCRETIZIED:
+            self.num_actions = self.env.action_space.shape[0]
+            self.num_discrete = kwargs['num_discrete']
+            # Only features one arrangment of discrete mapping for now
+            low = self.env.action_space.low[0].item()
+            high = self.env.action_space.high[0].item()
+            self.discrete_array = torch.arange(low, high, (high - low) / self.num_discrete)
 
     def reset(self):
         obs = self.env.reset()
@@ -61,7 +80,7 @@ class EnvWrapper():
 
     def step(self, action):
         if self.action_type == ActionType.REGULAR:
-            pass
+            pass # No change if action type is regular
         elif self.action_type == ActionType.PUSH_ONLY:
             # maps from 0-3 to 1-4 since 0 is NOP
             action += 1
@@ -70,17 +89,43 @@ class EnvWrapper():
             action += 1
             if action >= 5:
                 action += 4
+        elif self.action_type == ActionType.GAUSSIAN:
+            action = torch.stack(torch.split(action, 2))
+        elif self.action_type == ActionType.DISCRETIZIED:
+            action = action.flatten().numpy()
         obs, reward, done, info = self.env.step(action)
         obs = self.process_obs(obs)
         return obs, reward, done, info
 
     def process_obs(self, obs):
-        if self.obs_type == ObsType.REGULAR:
+        if (self.obs_type == ObsType.REGULAR) or (self.obs_type == ObsType.BOX2D):
             return obs
         elif self.obs_type == ObsType.ROOM_STATE_VECTOR:
             return self.env.room_state.flatten()
         elif self.obs_type == ObsType.ROOM_STATE_MATRIX:
             return self.env.room_state
+
+    def process_action(self, dist, policy_dist):
+        if self.action_type == ActionType.GAUSSIAN:
+            detached_mu = dist[:self.num_actions]
+            detached_sigma = dist[self.num_actions:]
+            attached_mu = policy_dist[:self.num_actions]
+            attached_sigma = policy_dist[self.num_actions:]
+            action = torch.normal(detached_mu, detached_sigma).item()
+            action_dist = Normal(attached_mu, attached_sigma)
+            log_prob = torch.log(
+                torch.abs(action_dist.cdf(action + detached_sigma) - action_dist.cdf(action - detached_sigma)))
+            entropy = action_dist.entropy().detach()
+        elif self.action_type == ActionType.DISCRETIZIED:
+            action_idx = torch.multinomial(dist, 1)
+            action = self.discrete_array[action_idx]
+            log_prob = torch.log(torch.gather(policy_dist, 1, action_idx))
+            entropy = Categorical(probs=dist).entropy().sum()
+        else:
+            action = torch.multinomial(dist, 1).item()
+            log_prob = torch.log(policy_dist[action])
+            entropy = Categorical(probs=dist).entropy()
+        return action, log_prob, entropy
 
 
 class AsyncEnvGen(mp.Process):

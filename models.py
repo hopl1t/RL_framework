@@ -83,3 +83,51 @@ class ConvActorCritic(nn.Module):
         policy_dist = F.softmax(self.actor_linear(common), dim=1)
 
         return value, policy_dist
+
+
+class DiscreteActorCritic(nn.Module):
+    """
+    For a discretisized continouous environment with more than one action per state
+    The difference from a regular net is that we do 2 softmaxs
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), discrete_size=100):
+        super(DiscreteActorCritic, self).__init__()
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+        self.common_linear = nn.Linear(num_inputs, hidden_size)
+        self.critic_linear = nn.Linear(hidden_size, 1)
+        self.actor_linear = nn.Linear(hidden_size, num_actions * discrete_size)
+        self.device = device
+        self.discrete_size = discrete_size
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        common = F.relu(self.common_linear(state))
+        value = self.critic_linear(common)
+        policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.discrete_size), dim=1)
+
+        return value, policy_dist
+
+
+# TODO: REMOIVE SOFTMAX AND GET PROPER ACTIVATION IF ANY. STD SHOULD BE RECTIFIED, MU NOT
+class GaussianActorCritic(nn.Module):
+    """
+    For a gaussian continouous environment with more than one action per state
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu')):
+        super(CommonActorCritic, self).__init__()
+
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+        self.common_linear = nn.Linear(num_inputs, hidden_size)
+        self.critic_linear = nn.Linear(hidden_size, 1)
+        self.actor_linear = nn.Linear(hidden_size, num_actions)
+        self.device = device
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        common = F.relu(self.common_linear(state))
+        value = self.critic_linear(common)
+        policy_dist = F.softmax(self.actor_linear(common), dim=1)
+
+        return value, policy_dist

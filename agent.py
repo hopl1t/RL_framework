@@ -4,7 +4,6 @@ import os
 import gym
 import numpy as np
 import torch
-from torch.distributions import Categorical
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import models
@@ -31,7 +30,8 @@ class A2CAgent:
         self.log_buffer = []
 
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
-              discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3):
+              discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
+              save_interval=10000, scheduler_interval=1000):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -65,14 +65,13 @@ class A2CAgent:
                 value, policy_dist = self.model.forward(state)
                 value = value.detach().item()
                 dist = policy_dist.detach().squeeze(0)
-                action = torch.multinomial(dist, 1).item()
-                log_prob = torch.log(policy_dist.squeeze(0)[action])
-                entropy = Categorical(probs=dist).entropy()
+                action, log_prob, entropy = self.env.process_action(dist, policy_dist.squeeze(0))
                 new_state, reward, done, info = self.env.step(action)
                 rewards.append(reward)
                 values.append(value)
                 log_probs.append(log_prob)
-                self.log_buffer.append(info.__repr__() + '\n')
+                if log_interval:
+                    self.log_buffer.append(info.__repr__() + '\n')
                 entropy_term += entropy
                 state = new_state
 
@@ -81,19 +80,20 @@ class A2CAgent:
                     q_val = q_val.detach().item()
                     self.all_rewards.append(np.sum(rewards))
                     self.all_lengths.append(step)
-                    self.average_lengths.append(np.mean(self.all_lengths[-10:]))
-                    if episode % 10 == 0:
+                    if (episode % print_interval == 0) and episode != 0:
                         sys.stdout.write(
-                            "episode: {}, reward: {}, total length: {}, average length: {} \n"
-                            .format(episode, np.sum(rewards), step, self.average_lengths[-1]))
-                    if (episode % 1000 == 0) and (episode != 0):
+                            "episode: {}, stats for last {} episodes:\tavg reward: {:.5f}\tavg length: {}\n"
+                            .format(episode, print_interval, np.mean(self.all_rewards[-print_interval:]),
+                                    np.mean(self.all_lengths[-print_interval:])))
+                    if (episode % scheduler_interval == 0) and (episode != 0):
                         scheduler.step()
                         sys.stdout.write('stepped scheduler, new lr: {:.5f}\n'.format(scheduler.get_last_lr()[0]))
-
-                    if (episode % 10000 == 0) and (episode != 0):
-                        self.save_and_log()
-                    # step = trajectory_len + 1
-                    break
+                    if (episode % save_interval == 0) and (episode != 0):
+                        self.save()
+                    if log_interval and (episode % log_interval == 0) and (episode != 0):
+                        self.log()
+                    if done:
+                        break
 
             q_vals = torch.zeros(len(values)).to(device)
             for t in reversed(range(len(rewards))):
@@ -107,7 +107,6 @@ class A2CAgent:
             actor_loss = (-log_probs * advantage).mean()
             critic_loss = 0.5 * advantage.pow(2).mean()
             ac_loss = (actor_loss + critic_loss + beta * entropy_term)
-
             optimizer.zero_grad()
             ac_loss.backward()
             optimizer.step()
@@ -115,15 +114,20 @@ class A2CAgent:
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
         utils.kill_process(env_gen)
         sys.stdout.write('Killed env gen process\n')
-        self.save_and_log()
+        self.save()
+        if log_interval:
+            self.log()
 
-    def save_and_log(self):
+    def save(self):
         with open(self.save_path, 'wb') as f:
             pickle.dump(self, f)
+        sys.stdout.write('Saved agent to {}\n'.format(self.save_path))
+
+    def log(self):
         with open(self.log_path, 'a') as f:
             _ = f.writelines(self.log_buffer)
             self.log_buffer = []
-        sys.stdout.write('Saved agent to {}\nLogged info to {}'.format(self.save_path, self.log_path))
+        sys.stdout.write('Logged info to {}\n'.format(self.log_path))
 
     def act(self, state):
         self.model.eval()
@@ -161,14 +165,21 @@ def main(raw_args):
     parser.add_argument('-discount_gamma', type=float, nargs='?', help='Discount factor', default=0.99)
     parser.add_argument('-scheduler_gamma', type=float, nargs='?', help='Scheduling factor', default=0.999)
     parser.add_argument('-beta', type=float, nargs='?', help='Info loss factor', default=1e-3)
+    parser.add_argument('-print_interval', type=int, nargs='?', help='Print stats to screen evey x steps', default=1000)
+    parser.add_argument('-log_interval', type=int, nargs='?', help='Log stats to file evey x steps. '
+                                                                   'Set 0 for no logs at all', default=1000)
     parser.add_argument('-async_sleep_interval', type=float, nargs='?', help='How long should the env gen thread sleep',
                         default=1e-2)
     parser.add_argument('-num_envs', type=int, nargs='?', help='Number of async envs to use if using async_env.'
                                                                ' default 2', default=2)
+    parser.add_argument('-num_discrete', type=int, nargs='?', help='How many discrete actions to generate for a cont.'
+                                                                   ' setting using discrete action space', default=100)
 
     args = parser.parse_args(raw_args)
-    envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], utils.ActionType[args.action_type])
-            for _ in range(args.num_envs)]
+    assert os.path.isdir(args.save_dir)
+    assert os.path.isdir(args.log_dir)
+    envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], utils.ActionType[args.action_type],
+            args.trajectory_len, num_discrete=args.num_discrete) for _ in range(args.num_envs)]
     env_gen = utils.AsyncEnvGen(envs, args.async_sleep_interval)
     if args.load:
         with open(args.load, 'rb') as f:
@@ -185,7 +196,8 @@ def main(raw_args):
             env_gen.start()
             sys.stdout.write('Started async env_gen process..\n')
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
-                    args.discount_gamma, args.scheduler_gamma, args.beta)
+                    args.discount_gamma, args.scheduler_gamma, args.beta,
+                    args.print_interval, args.log_interval)
     finally:
         utils.kill_process(env_gen)
         if env_gen.is_alive():
