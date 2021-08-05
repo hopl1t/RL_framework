@@ -4,7 +4,6 @@ import time
 import multiprocessing as mp
 import torch
 from torch.distributions import Categorical, Normal
-import gym_sokoban
 
 
 class ObsType(Enum):
@@ -27,6 +26,30 @@ def kill_process(p):
         p.q.cancel_join_thread()
         p.kill()
         p.join(1)
+
+
+def init_weights(model):
+    for name, layer in model._modules.items():
+        if hasattr(layer, '__iter__'):
+            init_weights(layer)
+        elif isinstance(layer, torch.nn.Module):
+            if isinstance(layer, torch.nn.Linear):
+                torch.nn.init.xavier_uniform_(layer.weight)
+                layer.bias.data.fill_(0.01)
+            elif isinstance(layer, torch.nn.modules.conv.Conv1d) or isinstance(layer, torch.nn.modules.conv.Conv2d):
+                layer.weight.data.fill_(0.01)
+                layer.bias.data.fill_(0.01)
+
+
+def reparametrize(mu, std):
+    """
+    Performs reparameterization trick z = mu + epsilon * std
+    Where epsilon~N(0,1)
+    """
+    mu = mu.expand(1, *mu.size())
+    std = std.expand(1, *std.size())
+    eps = torch.normal(0, 1, size=std.size()).to(mu.device)
+    return mu + eps * std
 
 
 class EnvWrapper:
@@ -90,7 +113,7 @@ class EnvWrapper:
             if action >= 5:
                 action += 4
         elif self.action_type == ActionType.GAUSSIAN:
-            action = torch.stack(torch.split(action, 2))
+            action = action.numpy()
         elif self.action_type == ActionType.DISCRETIZIED:
             action = action.flatten().numpy()
         obs, reward, done, info = self.env.step(action)
@@ -107,19 +130,22 @@ class EnvWrapper:
 
     def process_action(self, dist, policy_dist):
         if self.action_type == ActionType.GAUSSIAN:
-            detached_mu = dist[:self.num_actions]
-            detached_sigma = dist[self.num_actions:]
-            attached_mu = policy_dist[:self.num_actions]
-            attached_sigma = policy_dist[self.num_actions:]
-            action = torch.normal(detached_mu, detached_sigma).item()
-            action_dist = Normal(attached_mu, attached_sigma)
-            log_prob = torch.log(
-                torch.abs(action_dist.cdf(action + detached_sigma) - action_dist.cdf(action - detached_sigma)))
-            entropy = action_dist.entropy().detach()
+            detached_mu = dist[0]  #[:self.num_actions]
+            detached_sigma = dist[1]
+            attached_mu = policy_dist[0]
+            attached_sigma = policy_dist[1]
+            action = reparametrize(attached_mu, attached_sigma).squeeze(0).squeeze(0)
+            # action = torch.normal(detached_mu, detached_sigma).squeeze(0)
+            action_dist = Normal(detached_mu, detached_sigma)
+            log_prob = torch.log(torch.sigmoid((torch.abs(action - detached_sigma)) / detached_sigma))
+            # log_prob = torch.log(
+            #     torch.abs(action_dist.cdf(action + detached_sigma/4 + 0.001) - action_dist.cdf(action - detached_sigma/4 - 0.001)))
+            entropy = action_dist.entropy().detach().sum()
+            action = action.detach()
         elif self.action_type == ActionType.DISCRETIZIED:
             action_idx = torch.multinomial(dist, 1)
             action = self.discrete_array[action_idx]
-            log_prob = torch.log(torch.gather(policy_dist, 1, action_idx))
+            log_prob = torch.log(torch.gather(policy_dist, 1, action_idx).squeeze(1))
             entropy = Categorical(probs=dist).entropy().sum()
         else:
             action = torch.multinomial(dist, 1).item()
