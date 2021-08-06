@@ -126,6 +126,7 @@ class GaussianActorCritic(nn.Module):
         self.common_linear = nn.Linear(num_inputs, hidden_size)
         self.critic_linear = nn.Linear(hidden_size, 1)
         self.actor_linear = nn.Linear(hidden_size, num_actions * 2)
+        self.std_bias = kwargs['std_bias']
         self.device = device
         utils.init_weights(self)
 
@@ -136,7 +137,7 @@ class GaussianActorCritic(nn.Module):
         policy = self.actor_linear(common)
         mu, sigma = torch.split(policy, policy.shape[-1]//2, 1)
         # softplus transformation (soft relu) and a -5 bias is added
-        sigma = F.softplus(sigma - 5, beta=1)
+        sigma = F.softplus(sigma - self.std_bias, beta=1)
         if torch.isnan(mu).any() or torch.isnan(sigma).any():
             raise
 
@@ -184,7 +185,6 @@ class GaussianConvActorCritic(nn.Module):
         super(GaussianConvActorCritic, self).__init__()
         self.num_actions = num_actions
         self.num_inputs = num_inputs
-
         # 1 input channel, 30 out channels, 1x8 convolution
         # out shape will be: 8 - 8 + 2*4 + 1 = 9x20 (for a 1x8 input)
         conv1 = nn.Conv1d(1, 20, 8, padding=4)
@@ -194,6 +194,7 @@ class GaussianConvActorCritic(nn.Module):
         self.critic_linear = nn.Linear(hidden_size, 1)
         self.actor_linear = nn.Linear(hidden_size, num_actions * num_discrete)
         self.num_discrete = num_discrete
+        self.std_bias = kwargs['std_bias']
         self.device = device
         utils.init_weights(self)
 
@@ -202,15 +203,10 @@ class GaussianConvActorCritic(nn.Module):
         convolved = self.conv_block(state.unsqueeze(0))
         common = self.common_linear(torch.flatten(convolved, start_dim=1))
         value = self.critic_linear(common)
-        policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.num_discrete), dim=1)
-
+        policy = self.actor_linear(common)
         mu, sigma = torch.split(policy, policy.shape[-1] // 2, 1)
         # softplus transformation (soft relu) and a -5 bias is added
-        sigma = F.softplus(sigma - 5, beta=1)
+        sigma = F.softplus(sigma - self.std_bias, beta=1)
         if torch.isnan(mu).any() or torch.isnan(sigma).any():
             raise
-
         return value, torch.stack((mu, sigma))
-
-
-        return value, policy_dist

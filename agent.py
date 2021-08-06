@@ -178,6 +178,8 @@ def main(raw_args):
     parser.add_argument('-scheduler_gamma', type=float, nargs='?', help='Scheduling factor', default=0.999)
     parser.add_argument('-scheduler_interval', type=int, nargs='?', help='Interval to step scheduler', default=1000)
     parser.add_argument('-beta', type=float, nargs='?', help='Info loss factor', default=1e-3)
+    parser.add_argument('-std_bias', type=float, nargs='?', help='std bias for softplus rectification if using gaussian'
+                        , default=5)
     parser.add_argument('-print_interval', type=int, nargs='?', help='Print stats to screen evey x steps', default=1000)
     parser.add_argument('-log_interval', type=int, nargs='?', help='Log stats to file evey x steps. '
                                                                    'Set 0 for no logs at all', default=1000)
@@ -199,7 +201,8 @@ def main(raw_args):
         with open(args.load, 'rb') as f:
             agent = pickle.load(f)
     else:
-        model = getattr(models, args.model)(envs[0].obs_size, envs[0].num_actions, num_discrete=args.num_discrete)
+        model = getattr(models, args.model)(envs[0].obs_size, envs[0].num_actions,
+                                            num_discrete=args.num_discrete, std_bias=args.std_bias)
         timestamp = datetime.now().strftime('%y%m%d%H%m')
         save_path = os.path.join(args.save_dir, '{0}_{1}_{2}.pkl'.format(args.model, args.env, timestamp))
         log_path = os.path.join(args.log_dir, '{0}_{1}_{2}.log'.format(args.model, args.env, timestamp))

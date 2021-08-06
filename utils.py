@@ -114,7 +114,7 @@ class EnvWrapper:
             if action >= 5:
                 action += 4
         elif self.action_type == ActionType.GAUSSIAN:
-            action = action.numpy()
+            action = action.cpu().numpy()
         elif self.action_type == ActionType.DISCRETIZIED:
             action = action.flatten().numpy()
         obs, reward, done, info = self.env.step(action)
