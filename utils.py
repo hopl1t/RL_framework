@@ -69,6 +69,7 @@ class EnvWrapper:
         self.obs_type = obs_type
         self.env = gym.make(env_name)
         self.env.max_steps = max_steps
+        self.max_steps = max_steps
         self.action_type = action_type
         self.num_discrete = 0
         self.discrete_array = torch.FloatTensor()

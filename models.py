@@ -134,10 +134,9 @@ class GaussianActorCritic(nn.Module):
         common = F.relu(self.common_linear(state))
         value = self.critic_linear(common)
         policy = self.actor_linear(common)
-        mu, sigma = torch.split(policy, policy.shape[-1]//2, 1) # make sure shape[0] is the proper dimension..
+        mu, sigma = torch.split(policy, policy.shape[-1]//2, 1)
         # softplus transformation (soft relu) and a -5 bias is added
         sigma = F.softplus(sigma - 5, beta=1)
-        # sigma = F.softplus(sigma, beta=1)
         if torch.isnan(mu).any() or torch.isnan(sigma).any():
             raise
 
@@ -172,5 +171,46 @@ class DiscreteConvActorCritic(nn.Module):
         common = self.common_linear(torch.flatten(convolved, start_dim=1))
         value = self.critic_linear(common)
         policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.num_discrete), dim=1)
+
+        return value, policy_dist
+
+
+class GaussianConvActorCritic(nn.Module):
+    """
+    For a discretisized continouous environment with more than one action per state
+    The difference from a regular net is that we do 2 softmaxs
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), num_discrete=100, **kwargs):
+        super(GaussianConvActorCritic, self).__init__()
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+
+        # 1 input channel, 30 out channels, 1x8 convolution
+        # out shape will be: 8 - 8 + 2*4 + 1 = 9x20 (for a 1x8 input)
+        conv1 = nn.Conv1d(1, 20, 8, padding=4)
+        self.conv_block = nn.Sequential(conv1, nn.ReLU())
+        common_linear1 = nn.Linear(9*20, hidden_size)
+        self.common_linear = nn.Sequential(common_linear1, nn.ReLU())
+        self.critic_linear = nn.Linear(hidden_size, 1)
+        self.actor_linear = nn.Linear(hidden_size, num_actions * num_discrete)
+        self.num_discrete = num_discrete
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        convolved = self.conv_block(state.unsqueeze(0))
+        common = self.common_linear(torch.flatten(convolved, start_dim=1))
+        value = self.critic_linear(common)
+        policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.num_discrete), dim=1)
+
+        mu, sigma = torch.split(policy, policy.shape[-1] // 2, 1)
+        # softplus transformation (soft relu) and a -5 bias is added
+        sigma = F.softplus(sigma - 5, beta=1)
+        if torch.isnan(mu).any() or torch.isnan(sigma).any():
+            raise
+
+        return value, torch.stack((mu, sigma))
+
 
         return value, policy_dist

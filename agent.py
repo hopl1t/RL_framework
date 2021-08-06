@@ -56,37 +56,54 @@ class A2CAgent:
         self.model.train()
         optimizer = optim.Adam(self.model.parameters(), lr=lr)
         scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=scheduler_gamma)
-        entropy_term = torch.zeros(1).to(device)
-        q_val = 0
 
         for episode in range(epochs):
             ep_start_time = time.time()
-            log_probs = []
-            values = []
-            rewards = []
+            episode_rewards = []
             state, self.env = env_gen.get_reset_env()
-            for step in range(trajectory_len):
+            traj_log_probs, traj_values, traj_rewards = [], [], []
+            traj_entropy_term = torch.zeros(1).to(device)
+
+            for step in range(self.env.max_steps):
                 value, policy_dist = self.model.forward(state)
                 value = value.detach().item()
-                dist = policy_dist.detach().squeeze(0)
-                action, log_prob, entropy = self.env.process_action(dist, policy_dist.squeeze(0))
+                action, log_prob, entropy = self.env.process_action(policy_dist.detach().squeeze(0),
+                                                                    policy_dist.squeeze(0))
                 new_state, reward, done, info = self.env.step(action)
-                rewards.append(reward)
-                values.append(value)
-                log_probs.append(log_prob)
-                if log_interval:
+                if step == self.env.max_steps - 1:
+                    done = True
+                traj_rewards.append(reward)
+                episode_rewards.append(reward)
+                traj_values.append(value)
+                traj_log_probs.append(log_prob)
+                traj_entropy_term += entropy
+                state = new_state
+                if log_interval: # ie if to log at all
                     self.log_buffer.append(info.__repr__() + '\n')
 
-                entropy_term += entropy
-                state = new_state
-
-                if done or step == trajectory_len - 1:
+                if done or ((step % trajectory_len == 0) and step != 0):
                     q_val, _ = self.model.forward(new_state)
                     q_val = q_val.detach().item()
-                    self.all_rewards.append(np.sum(rewards))
-                    self.all_lengths.append(step)
+                    q_vals = torch.zeros(len(traj_values)).to(device)
+                    for t in reversed(range(len(traj_rewards))):
+                        q_val = traj_rewards[t] + discount_gamma * q_val
+                        q_vals[t] = q_val
+                    traj_values = torch.FloatTensor(traj_values).to(device)
+                    traj_log_probs = torch.stack(traj_log_probs, dim=traj_log_probs[0].dim()) # for more than one action dim will be 1
+                    advantage = q_vals - traj_values
+                    actor_loss = (-traj_log_probs * advantage).mean()
+                    critic_loss = 0.5 * advantage.pow(2).mean()
+                    ac_loss = (actor_loss + critic_loss + beta * traj_entropy_term)
+                    optimizer.zero_grad()
+                    ac_loss.backward()
+                    optimizer.step()
+                    traj_log_probs, traj_values, traj_rewards = [], [], []
+                    traj_entropy_term = torch.zeros(1).to(device)
+
                     if done:
                         self.all_times.append(time.time() - ep_start_time)
+                        self.all_rewards.append(np.sum(episode_rewards))
+                        self.all_lengths.append(step)
                         if (episode % print_interval == 0) and episode != 0:
                             self.print_stats(episode, print_interval)
                         if (episode % scheduler_interval == 0) and (episode != 0):
@@ -97,22 +114,6 @@ class A2CAgent:
                         if log_interval and (episode % log_interval == 0) and (episode != 0):
                             self.log()
                         break
-
-            q_vals = torch.zeros(len(values)).to(device)
-            for t in reversed(range(len(rewards))):
-                q_val = rewards[t] + discount_gamma * q_val
-                q_vals[t] = q_val
-
-            values = torch.FloatTensor(values).to(device)
-            log_probs = torch.stack(log_probs, dim=log_probs[0].dim()) # for more than one action dim will be 1
-
-            advantage = q_vals - values
-            actor_loss = (-log_probs * advantage).mean()
-            critic_loss = 0.5 * advantage.pow(2).mean()
-            ac_loss = (actor_loss + critic_loss + beta * entropy_term)
-            optimizer.zero_grad()
-            ac_loss.backward()
-            optimizer.step()
 
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
         utils.kill_process(env_gen)
@@ -211,6 +212,8 @@ def main(raw_args):
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
                     args.discount_gamma, args.scheduler_gamma, args.beta,
                     args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval)
+    except Exception as e:
+        raise e
     finally:
         utils.kill_process(env_gen)
         if env_gen.is_alive():
