@@ -114,6 +114,55 @@ class DiscreteActorCritic(nn.Module):
         return value, policy_dist
 
 
+class DoubleDiscreteActorCritic(nn.Module):
+    """
+    Like the prior only with 2 common layers
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), num_discrete=100, **kwargs):
+        super(DoubleDiscreteActorCritic, self).__init__()
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+        self.common_linear = nn.Sequential(nn.Linear(num_inputs, hidden_size//2), nn.ReLU(),
+                                           nn.Linear(hidden_size//2, hidden_size), nn.ReLU())
+        self.critic_linear = nn.Linear(hidden_size, 1)
+        self.actor_linear = nn.Linear(hidden_size, num_actions * num_discrete)
+        self.num_discrete = num_discrete
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        common = self.common_linear(state)
+        value = self.critic_linear(common)
+        policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.num_discrete), dim=1)
+        return value, policy_dist
+
+
+class TripleDiscreteActorCritic(nn.Module):
+    """
+    Like the prior only with 2 common layers
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), num_discrete=100, **kwargs):
+        super(TripleDiscreteActorCritic, self).__init__()
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+        self.common_linear = nn.Sequential(nn.Linear(num_inputs, hidden_size//2), nn.ReLU(),
+                                           nn.Linear(hidden_size//2, hidden_size), nn.ReLU(),
+                                           nn.Linear(hidden_size, hidden_size//2), nn.ReLU())
+        self.critic_linear = nn.Linear(hidden_size//2, 1)
+        self.actor_linear = nn.Linear(hidden_size//2, num_actions * num_discrete)
+        self.num_discrete = num_discrete
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        common = self.common_linear(state)
+        value = self.critic_linear(common)
+        policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.num_discrete), dim=1)
+        return value, policy_dist
+
+
 class GaussianActorCritic(nn.Module):
     """
     For a gaussian continouous environment with more than one action per state
