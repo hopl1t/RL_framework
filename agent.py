@@ -188,6 +188,9 @@ def main(raw_args):
                         default=1e-2)
     parser.add_argument('-num_envs', type=int, nargs='?', help='Number of async envs to use if using async_env.'
                                                                ' default 2', default=2)
+    parser.add_argument(
+        '-cone_trick', action='store_true', help='Flag. If specified the cone trick for Lunar Lander is used',
+        default=False)
     parser.add_argument('-num_discrete', type=int, nargs='?', help='How many discrete actions to generate for a cont.'
                                                                    ' setting using discrete action space', default=100)
 
@@ -195,7 +198,7 @@ def main(raw_args):
     assert os.path.isdir(args.save_dir)
     assert os.path.isdir(args.log_dir)
     envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], utils.ActionType[args.action_type],
-            args.max_len, num_discrete=args.num_discrete) for _ in range(args.num_envs)]
+            args.max_len, num_discrete=args.num_discrete, cone_trick=args.cone_trick) for _ in range(args.num_envs)]
     env_gen = utils.AsyncEnvGen(envs, args.async_sleep_interval)
     if args.load:
         with open(args.load, 'rb') as f:

@@ -3,6 +3,7 @@ from enum import Enum
 import time
 import multiprocessing as mp
 import torch
+import math
 from torch.distributions import Categorical, Normal
 
 
@@ -68,11 +69,14 @@ class EnvWrapper:
         """
         self.obs_type = obs_type
         self.env = gym.make(env_name)
+        self.env_name = env_name
         self.env.max_steps = max_steps
         self.max_steps = max_steps
         self.action_type = action_type
         self.num_discrete = 0
         self.discrete_array = torch.FloatTensor()
+        self.split_discrete_array = torch.FloatTensor()
+        self.cone_trick = kwargs['cone_trick']
         if obs_type == ObsType.REGULAR:
             self.obs_size = self.env.observation_space.shape[0]
         elif obs_type == ObsType.ROOM_STATE_VECTOR:
@@ -97,6 +101,9 @@ class EnvWrapper:
             low = self.env.action_space.low[0].item()
             high = self.env.action_space.high[0].item()
             self.discrete_array = torch.arange(low, high, (high - low) / self.num_discrete)
+            a = torch.arange(low, low / 2, (-low / 2) / (self.num_discrete // 2))
+            b = torch.arange(high / 2, high, (high / 2) / (self.num_discrete // 2))
+            self.split_discrete_array = torch.cat((a, b)) # in Lunar lander -0.5 to 0.5 is NOP for L\R engines
 
     def reset(self):
         obs = self.env.reset()
@@ -119,6 +126,13 @@ class EnvWrapper:
             action = action.flatten().numpy()
         obs, reward, done, info = self.env.step(action)
         obs = self.process_obs(obs)
+        if self.cone_trick:
+            x_pos = obs[0]
+            y_pos = obs[1]
+            alpha = math.atan2(y_pos, abs(x_pos))
+            if (alpha < math.pi / 4) and (y_pos > 1/3):
+                reward -= 200
+                done = True
         return obs, reward, done, info
 
     def process_obs(self, obs):
@@ -136,16 +150,16 @@ class EnvWrapper:
             attached_mu = policy_dist[0]
             attached_sigma = policy_dist[1]
             action = reparametrize(attached_mu, attached_sigma).squeeze(0).squeeze(0)
-            # action = torch.normal(detached_mu, detached_sigma).squeeze(0)
             action_dist = Normal(detached_mu, detached_sigma)
             log_prob = torch.log(torch.sigmoid((torch.abs(action - detached_sigma)) / detached_sigma))
-            # log_prob = torch.log(
-            #     torch.abs(action_dist.cdf(action + detached_sigma/4 + 0.001) - action_dist.cdf(action - detached_sigma/4 - 0.001)))
             entropy = action_dist.entropy().detach().sum()
             action = action.detach()
         elif self.action_type == ActionType.DISCRETIZIED:
             action_idx = torch.multinomial(dist, 1)
-            action = self.discrete_array[action_idx]
+            if self.env_name == 'LunarLanderContinuous-v2':
+                action = torch.stack((self.discrete_array[action_idx[0]], self.split_discrete_array[action_idx[1]]))
+            else:
+                action = self.discrete_array[action_idx]
             log_prob = torch.log(torch.gather(policy_dist, 1, action_idx).squeeze(1))
             entropy = Categorical(probs=dist).entropy().sum()
         else:

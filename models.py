@@ -114,30 +114,6 @@ class DiscreteActorCritic(nn.Module):
         return value, policy_dist
 
 
-class DoubleDiscreteActorCritic(nn.Module):
-    """
-    Like the prior only with 2 common layers
-    """
-    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), num_discrete=100, **kwargs):
-        super(DoubleDiscreteActorCritic, self).__init__()
-        self.num_actions = num_actions
-        self.num_inputs = num_inputs
-        self.common_linear = nn.Sequential(nn.Linear(num_inputs, hidden_size//2), nn.ReLU(),
-                                           nn.Linear(hidden_size//2, hidden_size), nn.ReLU())
-        self.critic_linear = nn.Linear(hidden_size, 1)
-        self.actor_linear = nn.Linear(hidden_size, num_actions * num_discrete)
-        self.num_discrete = num_discrete
-        self.device = device
-        utils.init_weights(self)
-
-    def forward(self, state):
-        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        common = self.common_linear(state)
-        value = self.critic_linear(common)
-        policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.num_discrete), dim=1)
-        return value, policy_dist
-
-
 class TripleDiscreteActorCritic(nn.Module):
     """
     Like the prior only with 2 common layers
@@ -160,6 +136,34 @@ class TripleDiscreteActorCritic(nn.Module):
         common = self.common_linear(state)
         value = self.critic_linear(common)
         policy_dist = F.softmax(self.actor_linear(common).view(self.num_actions, self.num_discrete), dim=1)
+        return value, policy_dist
+
+
+class SplitDiscreteActorCritic(nn.Module):
+    """
+    Both nets diverge and converge
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=400, device=torch.device('cpu'), num_discrete=100, **kwargs):
+        super(SplitDiscreteActorCritic, self).__init__()
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+        self.common = nn.Sequential(nn.Linear(num_inputs, hidden_size), nn.LeakyReLU()) #, nn.BatchNorm1d(hidden_size)
+        self.actor = nn.Sequential(nn.Linear(hidden_size, hidden_size//2), nn.LeakyReLU(),
+                                   nn.Linear(hidden_size//2, num_actions * num_discrete)) # , nn.BatchNorm1d(hidden_size//2)
+        self.critic1 = nn.Sequential(nn.Linear(hidden_size, hidden_size//2), nn.LeakyReLU()) # , nn.BatchNorm1d(hidden_size//2)
+        self.critic2 = nn.Linear(hidden_size//2, 1)
+        self.residual = nn.Sequential(nn.Linear(num_actions * num_discrete, hidden_size//2), nn.LeakyReLU())
+        self.num_discrete = num_discrete
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        common = self.common(state)
+        policy_dist = F.softmax(self.actor(common).view(self.num_actions, self.num_discrete), dim=1)
+        critic1 = self.critic1(common)
+        residual = self.residual(policy_dist.flatten())
+        value = self.critic2(F.relu(critic1 + residual))
         return value, policy_dist
 
 
