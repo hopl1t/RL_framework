@@ -33,7 +33,7 @@ class A2CAgent:
 
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
-              save_interval=10000, scheduler_interval=1000):
+              save_interval=10000, scheduler_interval=1000, clip_gradient=False):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -96,6 +96,8 @@ class A2CAgent:
                     ac_loss = (actor_loss + critic_loss + beta * traj_entropy_term)
                     optimizer.zero_grad()
                     ac_loss.backward()
+                    if clip_gradient:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
                     optimizer.step()
                     traj_log_probs, traj_values, traj_rewards = [], [], []
                     traj_entropy_term = torch.zeros(1).to(device)
@@ -184,6 +186,7 @@ def main(raw_args):
     parser.add_argument('-log_interval', type=int, nargs='?', help='Log stats to file evey x steps. '
                                                                    'Set 0 for no logs at all', default=1000)
     parser.add_argument('-max_len', type=int, nargs='?', help='Maximal steps for a single episode', default=5000)
+    parser.add_argument('-hidden_size', type=int, nargs='?', help='Size of largest hidden layer', default=512)
     parser.add_argument('-async_sleep_interval', type=float, nargs='?', help='How long should the env gen thread sleep',
                         default=1e-2)
     parser.add_argument('-num_envs', type=int, nargs='?', help='Number of async envs to use if using async_env.'
@@ -191,6 +194,9 @@ def main(raw_args):
     parser.add_argument(
         '-cone_trick', action='store_true', help='Flag. If specified the cone trick for Lunar Lander is used',
         default=False)
+    parser.add_argument(
+        '-clip_gradient', action='store_true', help='Flag. If specified the gradient is clipped during training to '
+                                                    'prevent exploding gradient', default=False)
     parser.add_argument('-num_discrete', type=int, nargs='?', help='How many discrete actions to generate for a cont.'
                                                                    ' setting using discrete action space', default=100)
 
@@ -204,7 +210,7 @@ def main(raw_args):
         with open(args.load, 'rb') as f:
             agent = pickle.load(f)
     else:
-        model = getattr(models, args.model)(envs[0].obs_size, envs[0].num_actions,
+        model = getattr(models, args.model)(envs[0].obs_size, envs[0].num_actions, hidden_size=args.hidden_size,
                                             num_discrete=args.num_discrete, std_bias=args.std_bias)
         timestamp = datetime.now().strftime('%y%m%d%H%m')
         save_path = os.path.join(args.save_dir, '{0}_{1}_{2}.pkl'.format(args.model, args.env, timestamp))
@@ -217,7 +223,8 @@ def main(raw_args):
             sys.stdout.write('Started async env_gen process..\n')
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
                     args.discount_gamma, args.scheduler_gamma, args.beta,
-                    args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval)
+                    args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval,
+                    clip_gradient=args.clip_gradient)
     except Exception as e:
         raise e
     finally:

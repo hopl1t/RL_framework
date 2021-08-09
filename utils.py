@@ -145,13 +145,13 @@ class EnvWrapper:
 
     def process_action(self, dist, policy_dist):
         if self.action_type == ActionType.GAUSSIAN:
-            detached_mu = dist[0]  #[:self.num_actions]
+            detached_mu = dist[0]
             detached_sigma = dist[1]
             attached_mu = policy_dist[0]
             attached_sigma = policy_dist[1]
             action = reparametrize(attached_mu, attached_sigma).squeeze(0).squeeze(0)
             action_dist = Normal(detached_mu, detached_sigma)
-            log_prob = torch.log(torch.sigmoid((torch.abs(action - detached_sigma)) / detached_sigma))
+            log_prob = torch.log(torch.sigmoid((torch.abs(action - detached_mu)) / detached_sigma))
             entropy = action_dist.entropy().detach().sum()
             action = action.detach()
         elif self.action_type == ActionType.DISCRETIZIED:
