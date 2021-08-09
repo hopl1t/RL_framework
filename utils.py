@@ -5,6 +5,9 @@ import multiprocessing as mp
 import torch
 import math
 from torch.distributions import Categorical, Normal
+import numpy as np
+import sys
+import pickle
 
 
 class ObsType(Enum):
@@ -51,6 +54,28 @@ def reparametrize(mu, std):
     std = std.expand(1, *std.size())
     eps = torch.normal(0, 1, size=std.size()).to(mu.device)
     return mu + eps * std
+
+
+def save_agent(agent):
+    with open(agent.save_path, 'wb') as f:
+        pickle.dump(agent, f)
+    sys.stdout.write('Saved agent to {}\n'.format(agent.save_path))
+
+
+def log(agent):
+    with open(agent.log_path, 'a') as f:
+        _ = f.writelines(agent.log_buffer)
+        agent.log_buffer = []
+    sys.stdout.write('Logged info to {}\n'.format(agent.log_path))
+
+
+def print_stats(agent, episode, print_interval):
+    sys.stdout.write(
+        "episode: {}, stats for last {} episodes:\tavg reward: {:.3f}\t"
+        "avg length: {:.3f}\t avg time: {:.3f}\n"
+            .format(episode, print_interval, np.mean(agent.all_rewards[-print_interval:]),
+                    np.mean(agent.all_lengths[-print_interval:]),
+                    np.mean(agent.all_times[-print_interval:])))
 
 
 class EnvWrapper:

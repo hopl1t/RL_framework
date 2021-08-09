@@ -23,7 +23,6 @@ class SimpleActorCritic(nn.Module):
         value = self.critic_linear2(value)
         policy_dist = F.relu(self.actor_linear1(state))
         policy_dist = F.softmax(self.actor_linear2(policy_dist), dim=1)
-
         return value, policy_dist
 
 
@@ -353,3 +352,18 @@ class SplitActorCritic(nn.Module):
         residual = self.residual(policy_dist.flatten())
         value = self.critic2(F.relu(critic1 + residual))
         return value, policy_dist
+
+
+class SimpleDQN(nn.Module):
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), **kwargs):
+        super(SimpleDQN, self).__init__()
+        self.net = nn.Sequential(nn.Linear(num_inputs, hidden_size // 2), nn.LeakyReLU(),
+                                 nn.Linear(hidden_size // 2, hidden_size), nn.LeakyReLU(),
+                                 nn.Linear(hidden_size, hidden_size // 2), nn.LeakyReLU(),
+                                 nn.Linear(hidden_size // 2, num_actions))
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        return self.net(state)
