@@ -8,6 +8,8 @@ from torch.distributions import Categorical, Normal
 import numpy as np
 import sys
 import pickle
+import gym_sokoban
+import gym
 import torch.nn.functional as F
 
 
