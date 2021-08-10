@@ -1,11 +1,13 @@
 import sys
 import gym
+import random
 import numpy as np
 import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import utils
 import time
+import torch.nn.functional as F
 
 
 class DQNAgent:
@@ -28,7 +30,7 @@ class DQNAgent:
 
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
-              save_interval=10000, scheduler_interval=1000, clip_gradient=False):
+              save_interval=10000, scheduler_interval=1000, no_per=False, **kwargs):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -62,45 +64,44 @@ class DQNAgent:
 
             for step in range(self.env.max_steps):
 
-                q_vals = self.model.forward(state)
-                action = self.env.process_action(value.detach())
-
-                value = value.detach().item()
-                action, log_prob, entropy = self.env.process_action(policy_dist.detach().squeeze(0),
-                                                                    policy_dist.squeeze(0))
-                new_state, reward, done, info = self.env.step(action)
+                with torch.no_grad():
+                    q_vals = self.model.forward(state)
+                    action, action_idx = self.env.on_policy(q_vals)
+                    new_state, reward, done, info = self.env.step(action)
+                    if not done:
+                        new_q_vals = self.model.forward(new_state).detach()
+                        new_q = self.env.off_policy(new_q_vals)
+                    else:
+                        new_q = self.get_zero_q()
+                target = new_q + reward
+                delta = self.get_delta(q_vals, action_idx, target)
+                experience.append((state, action_idx, reward, new_q, delta))
+                state = new_state
                 if step == self.env.max_steps - 1:
                     done = True
                 traj_rewards.append(reward)
                 episode_rewards.append(reward)
-                traj_values.append(value)
-                traj_log_probs.append(log_prob)
-                traj_entropy_term += entropy
-                state = new_state
                 if log_interval: # ie if to log at all
                     self.log_buffer.append(info.__repr__() + '\n')
 
                 if done or ((step % trajectory_len == 0) and step != 0):
-                    q_val, _ = self.model.forward(new_state)
-                    q_val = q_val.detach().item()
-                    q_vals = torch.zeros(len(traj_values)).to(device)
-                    for t in reversed(range(len(traj_rewards))):
-                        q_val = traj_rewards[t] + discount_gamma * q_val
-                        q_vals[t] = q_val
-                    traj_values = torch.FloatTensor(traj_values).to(device)
-                    traj_log_probs = torch.stack(traj_log_probs, dim=traj_log_probs[0].dim()) # for more than one action dim will be 1
-                    advantage = q_vals - traj_values
-                    actor_loss = (-traj_log_probs * advantage).mean()
-                    critic_loss = 0.5 * advantage.pow(2).mean()
-                    ac_loss = (actor_loss + critic_loss + beta * traj_entropy_term)
-                    optimizer.zero_grad()
-                    ac_loss.backward()
-                    if clip_gradient:
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
-                    optimizer.step()
-                    traj_log_probs, traj_values, traj_rewards = [], [], []
-                    traj_entropy_term = torch.zeros(1).to(device)
-
+                    if not no_per: # IE use PER
+                        per = sorted(experience, key=lambda tup: tup[-1])[-len(experience)//2:]
+                    else:
+                        per = experience
+                    random.shuffle(per)
+                    for e in per:
+                        # TODO: SWITCH TO BATCHS HERE (NOT ONE BY ONE)
+                        state = e[0]
+                        action_idx = e[1]
+                        reward = e[2]
+                        new_q = e[3]
+                        prediction = self.predict(state, action_idx)
+                        target = self.get_target(new_q, reward)
+                        optimizer.zero_grad()
+                        loss = F.mse_loss(prediction, target)
+                        loss.backward()
+                        optimizer.step()
                     if done:
                         self.all_times.append(time.time() - ep_start_time)
                         self.all_rewards.append(np.sum(episode_rewards))
@@ -129,3 +130,49 @@ class DQNAgent:
         dist = policy_dist.detach().squeeze(0)
         action = torch.multinomial(dist, 1).item()
         return action
+
+    def get_delta(self, q_vals, action_idx, target):
+        if self.env.action_type == utils.ActionType.REGULAR:
+            delta = abs(q_vals.detach().squeeze(0)[action_idx] - target) + 0.001
+        elif self.env.action_type == utils.ActionType.DISCRETIZIED:
+            delta = abs((torch.stack([q_vals.detach()[i][action_idx[i]]
+                                  for i in range(action_idx.dim())], dim=1) - target)).sum() + 0.001
+        else:
+            raise NotImplementedError
+        return delta
+
+    def predict(self, state, action_idx):
+        q_vals = self.model.forward(state)
+        if self.env.action_type == utils.ActionType.REGULAR:
+            # prediction = q_vals.squeeze(0)[action_idx].unsqueeze(0).unsqueeze(0)
+            prediction = q_vals.squeeze(0)[action_idx].view(1,1,1)
+        elif self.env.action_type == utils.ActionType.DISCRETIZIED:
+            # prediction = torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)]).unsqueeze(0)
+            prediction = torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)])\
+                .view(1, self.env.num_actions, 1)
+        else:
+            raise NotImplementedError
+        return prediction
+
+    def get_target(self, new_q, reward):
+        if self.env.action_type == utils.ActionType.REGULAR:
+            # target = torch.FloatTensor([new_q + reward]).unsqueeze(0)
+            target = (new_q + reward).view(1, 1, 1)
+        elif self.env.action_type == utils.ActionType.DISCRETIZIED:
+            target = (new_q + reward).view(1, self.env.num_actions, 1)
+        else:
+            raise NotImplementedError
+        return target
+
+    def get_zero_q(self):
+        if self.env.action_type == utils.ActionType.REGULAR:
+            zeros = torch.zeros(1, dtype=torch.float32)
+        elif self.env.action_type == utils.ActionType.DISCRETIZIED:
+            zeros = torch.zeros(self.env.num_actions, dtype=torch.float32)
+        else:
+            raise NotImplementedError
+        return zeros
+
+
+
+

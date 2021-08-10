@@ -22,6 +22,9 @@ def main(raw_args):
     parser.add_argument(
         '-model', type=str, nargs='?', help='Model class name from models.py to use, example: "ModelClassName"')
     parser.add_argument(
+        '-agent', type=str, nargs='?', help='Type of agent to use, either A2CAgent or DQNAgent. defaults to A2C',
+        default='A2CAgent')
+    parser.add_argument(
         '-save_dir', type=str, nargs='?', help='Path to save and load the agent. Defaults to ./saved_agents',
         default='./saved_agents')
     parser.add_argument(
@@ -53,10 +56,12 @@ def main(raw_args):
         '-cone_trick', action='store_true', help='Flag. If specified the cone trick for Lunar Lander is used',
         default=False)
     parser.add_argument(
+        '-no_PER', action='store_true', help='Flag. If specified disables the use of PER in DQN agents', default=False)
+    parser.add_argument(
         '-clip_gradient', action='store_true', help='Flag. If specified the gradient is clipped during training to '
                                                     'prevent exploding gradient', default=False)
     parser.add_argument('-num_discrete', type=int, nargs='?', help='How many discrete actions to generate for a cont.'
-                                                                   ' setting using discrete action space', default=100)
+                                                                   ' setting using discrete action space', default=10)
 
     args = parser.parse_args(raw_args)
     assert os.path.isdir(args.save_dir)
@@ -73,7 +78,7 @@ def main(raw_args):
         timestamp = datetime.now().strftime('%y%m%d%H%m')
         save_path = os.path.join(args.save_dir, '{0}_{1}_{2}.pkl'.format(args.model, args.env, timestamp))
         log_path = os.path.join(args.log_dir, '{0}_{1}_{2}.log'.format(args.model, args.env, timestamp))
-        agent = A2CAgent(model, save_path, log_path)
+        agent = getattr(sys.modules[__name__], args.agent)(model, save_path, log_path)
 
     try:
         if args.async_env:
@@ -82,7 +87,7 @@ def main(raw_args):
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
                     args.discount_gamma, args.scheduler_gamma, args.beta,
                     args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval,
-                    clip_gradient=args.clip_gradient)
+                    clip_gradient=args.clip_gradient, no_per=args.no_PER)
     except Exception as e:
         raise e
     finally:

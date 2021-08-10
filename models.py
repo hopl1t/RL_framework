@@ -367,3 +367,20 @@ class SimpleDQN(nn.Module):
     def forward(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         return self.net(state)
+
+
+class DiscretizedDQN(nn.Module):
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), num_discrete=10, **kwargs):
+        super(DiscretizedDQN, self).__init__()
+        self.net = nn.Sequential(nn.Linear(num_inputs, hidden_size // 2), nn.LeakyReLU(),
+                                 nn.Linear(hidden_size // 2, hidden_size), nn.LeakyReLU(),
+                                 nn.Linear(hidden_size, hidden_size // 2), nn.LeakyReLU(),
+                                 nn.Linear(hidden_size // 2, num_actions * num_discrete))
+        self.num_actions = num_actions
+        self.num_discrete = num_discrete
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        return self.net(state).view(self.num_actions, self.num_discrete)

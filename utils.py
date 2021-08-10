@@ -8,6 +8,7 @@ from torch.distributions import Categorical, Normal
 import numpy as np
 import sys
 import pickle
+import torch.nn.functional as F
 
 
 class ObsType(Enum):
@@ -192,6 +193,40 @@ class EnvWrapper:
             log_prob = torch.log(policy_dist[action])
             entropy = Categorical(probs=dist).entropy()
         return action, log_prob, entropy
+
+    def on_policy(self, q_vals):
+        """
+        Returns on policy (epsilon soft) action for a DQN net
+        :param q_vals: Tensor - q values per action
+        :return: Int - action to take
+        """
+        activated = F.softmax(q_vals, dim=1)
+        if self.action_type == ActionType.REGULAR:
+            action = torch.multinomial(activated, 1).item()
+            action_idx = torch.tensor(action).unsqueeze(0)
+        elif self.action_type == ActionType.DISCRETIZIED:
+            action_idx = torch.multinomial(activated, 1)
+            if self.env_name == 'LunarLanderContinuous-v2':
+                action = torch.stack((self.discrete_array[action_idx[0]], self.split_discrete_array[action_idx[1]]))
+            else:
+                action = self.discrete_array[action_idx]
+        else:
+            raise NotImplementedError
+        return action, action_idx
+
+    def off_policy(self, q_vals):
+        """
+        Returns off policy (max q value) value for a DQN net
+        :param q_vals: Tensor - q values per action
+        :return: Int - action to take
+        """
+        if self.action_type == ActionType.REGULAR:
+            q_val = q_vals.max()
+        elif self.action_type == ActionType.DISCRETIZIED:
+            q_val, _ = q_vals.max(dim=1) # this is actually q_vals
+        else:
+            raise NotImplementedError
+        return q_val
 
 
 class AsyncEnvGen(mp.Process):
