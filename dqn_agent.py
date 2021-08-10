@@ -72,8 +72,8 @@ class DQNAgent:
                         new_q_vals = self.model.forward(new_state).detach()
                         new_q = self.env.off_policy(new_q_vals)
                     else:
-                        new_q = self.get_zero_q()
-                target = new_q + reward
+                        new_q = self.get_zero_q().to(self.model.device)
+                target = self.get_target(new_q, reward)
                 delta = self.get_delta(q_vals, action_idx, target)
                 experience.append((state, action_idx, reward, new_q, delta))
                 state = new_state
@@ -132,6 +132,7 @@ class DQNAgent:
         return action
 
     def get_delta(self, q_vals, action_idx, target):
+        # TODO: replace with .view(1,-1,1)
         if self.env.action_type == utils.ActionType.REGULAR:
             delta = abs(q_vals.detach().squeeze(0)[action_idx] - target) + 0.001
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
@@ -142,6 +143,7 @@ class DQNAgent:
         return delta
 
     def predict(self, state, action_idx):
+        # TODO: replace with .view(1,-1,1)
         q_vals = self.model.forward(state)
         if self.env.action_type == utils.ActionType.REGULAR:
             # prediction = q_vals.squeeze(0)[action_idx].unsqueeze(0).unsqueeze(0)
@@ -155,6 +157,7 @@ class DQNAgent:
         return prediction
 
     def get_target(self, new_q, reward):
+        # TODO: replace with .view(1,-1,1)
         if self.env.action_type == utils.ActionType.REGULAR:
             # target = torch.FloatTensor([new_q + reward]).unsqueeze(0)
             target = (new_q + reward).view(1, 1, 1)
@@ -162,9 +165,10 @@ class DQNAgent:
             target = (new_q + reward).view(1, self.env.num_actions, 1)
         else:
             raise NotImplementedError
-        return target
+        return target.to(self.model.device)
 
     def get_zero_q(self):
+        # TODO: replace with .view(1,-1,1)
         if self.env.action_type == utils.ActionType.REGULAR:
             zeros = torch.zeros(1, dtype=torch.float32)
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
