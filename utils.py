@@ -8,7 +8,7 @@ from torch.distributions import Categorical, Normal
 import numpy as np
 import sys
 import pickle
-import gym_sokoban
+import gym_sokoban # Don't remove this
 import gym
 import torch.nn.functional as F
 
@@ -26,6 +26,65 @@ class ActionType(Enum):
     PUSH_PULL = 3
     GAUSSIAN = 4
     DISCRETIZIED = 5
+
+
+class MoveType(Enum):
+    PUSH_UP = 1
+    PUSH_DOWN = 2
+    PUSH_LEFT = 3
+    PUSH_RIGHT = 4
+    PULL_UP = 9
+    PULL_DOWN = 10
+    PULL_LEFT = 11
+    PULL_RIGHT = 12
+
+
+class TileType(Enum):
+    WALL = 0
+    FLOOR = 1
+    TARGET = 2
+    BOX_ON_TARGET = 3
+    BOX = 4
+    PLAYER = 5
+
+
+PULL_MOVES = [MoveType.PULL_UP, MoveType.PULL_DOWN, MoveType.PULL_LEFT, MoveType.PULL_RIGHT]
+BOX_TILES = [TileType.BOX, TileType.BOX_ON_TARGET]
+
+
+def get_tiles(room, player_pos, move):
+    """
+    Returns the adjecant tiles after and before the direction of movment
+    In that order
+    """
+    dx = 0
+    dy = 0
+    if (move == MoveType.PUSH_UP) or (move == MoveType.PULL_UP):
+        dy = -1
+    elif (move == MoveType.PUSH_DOWN) or (move == MoveType.PULL_DOWN):
+        dy = 1
+    elif (move == MoveType.PUSH_LEFT) or (move == MoveType.PULL_LEFT):
+        dx = -1
+    elif (move == MoveType.PUSH_RIGHT) or (move == MoveType.PULL_RIGHT):
+        dx = 1
+    tile_after = TileType(room[player_pos[0] + dy, player_pos[1] + dx])
+    tile_before = TileType(room[player_pos[0] - dy, player_pos[1] - dx])
+    return tile_after, tile_before
+
+
+def is_valid_command(room, player_pos, move):
+    """
+    Invalid movments for now:
+    1. Walk into a wall
+    2. Pull when there is no box to pull
+    """
+    is_valid = True
+    tile_after, tile_before = get_tiles(room, player_pos, move)
+    if tile_after == TileType.WALL:
+        is_valid = False
+    if (move in PULL_MOVES) and (tile_before not in BOX_TILES):
+        is_valid = False
+    return is_valid
 
 
 def kill_process(p):
@@ -105,6 +164,7 @@ class EnvWrapper:
         self.discrete_array = torch.FloatTensor()
         self.split_discrete_array = torch.FloatTensor()
         self.cone_trick = kwargs['cone_trick']
+        self.move_trick = kwargs['move_trick']
         if obs_type == ObsType.REGULAR:
             self.obs_size = self.env.observation_space.shape[0]
         elif obs_type == ObsType.ROOM_STATE_VECTOR:
@@ -159,7 +219,14 @@ class EnvWrapper:
             y_pos = obs[1]
             alpha = math.atan2(y_pos, abs(x_pos))
             if (alpha < math.pi / 4) and (y_pos > 1/3):
-                reward -= 200
+                reward -= 300
+                done = True
+        if self.move_trick:
+            room = self.env.room_state
+            player_pos = self.env.player_position
+            is_valid = is_valid_command(room, player_pos, MoveType(action))
+            if not is_valid:
+                reward -= 300
                 done = True
         return obs, reward, done, info
 
