@@ -37,6 +37,7 @@ def main(raw_args):
     parser.add_argument('-epochs', type=int, nargs='?', help='Num epochs (episodes) to train', default=3000)
     parser.add_argument('-trajectory_len', type=int, nargs='?', help='Maximal length of single trajectory', default=300)
     parser.add_argument('-lr', type=float, nargs='?', help='Learning rate', default=3e-4)
+    parser.add_argument('-trick_fine', type=float, nargs='?', help='Default fine for one of the tricks', default=300)
     parser.add_argument('-discount_gamma', type=float, nargs='?', help='Discount factor', default=0.99)
     parser.add_argument('-scheduler_gamma', type=float, nargs='?', help='Scheduling factor', default=0.999)
     parser.add_argument('-scheduler_interval', type=int, nargs='?', help='Interval to step scheduler', default=1000)
@@ -70,7 +71,7 @@ def main(raw_args):
     assert os.path.isdir(args.log_dir)
     envs = [utils.EnvWrapper(args.env, utils.ObsType[args.obs_type], utils.ActionType[args.action_type],
             args.max_len, num_discrete=args.num_discrete, cone_trick=args.cone_trick, move_trick=args.move_trick
-                             ) for _ in range(args.num_envs)]
+                             , trick_fine=args.trick_fine) for _ in range(args.num_envs)]
     env_gen = utils.AsyncEnvGen(envs, args.async_sleep_interval)
     if args.load:
         with open(args.load, 'rb') as f:

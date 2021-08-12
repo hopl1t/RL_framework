@@ -165,6 +165,7 @@ class EnvWrapper:
         self.split_discrete_array = torch.FloatTensor()
         self.cone_trick = kwargs['cone_trick']
         self.move_trick = kwargs['move_trick']
+        self.trick_fine = kwargs['trick_fine']
         if obs_type == ObsType.REGULAR:
             self.obs_size = self.env.observation_space.shape[0]
         elif obs_type == ObsType.ROOM_STATE_VECTOR:
@@ -219,14 +220,14 @@ class EnvWrapper:
             y_pos = obs[1]
             alpha = math.atan2(y_pos, abs(x_pos))
             if (alpha < math.pi / 4) and (y_pos > 1/3):
-                reward -= 300
+                reward -= self.trick_fine
                 done = True
         if self.move_trick:
             room = self.env.room_state
             player_pos = self.env.player_position
             is_valid = is_valid_command(room, player_pos, MoveType(action))
             if not is_valid:
-                reward -= 300
+                reward -= self.trick_fine
                 done = True
         return obs, reward, done, info
 
