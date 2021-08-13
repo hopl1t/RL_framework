@@ -49,6 +49,8 @@ def main(raw_args):
                                                                    'Set 0 for no logs at all', default=1000)
     parser.add_argument('-max_len', type=int, nargs='?', help='Maximal steps for a single episode', default=5000)
     parser.add_argument('-hidden_size', type=int, nargs='?', help='Size of largest hidden layer', default=512)
+    parser.add_argument('-stop_trick_at', type=int, nargs='?', help='Stop the trick after this epoch.'
+                                                                    '0 is don\'t stop', default=0)
     parser.add_argument('-async_sleep_interval', type=float, nargs='?', help='How long should the env gen thread sleep',
                         default=1e-2)
     parser.add_argument('-num_envs', type=int, nargs='?', help='Number of async envs to use if using async_env.'
@@ -91,7 +93,7 @@ def main(raw_args):
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
                     args.discount_gamma, args.scheduler_gamma, args.beta,
                     args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval,
-                    clip_gradient=args.clip_gradient, no_per=args.no_PER)
+                    clip_gradient=args.clip_gradient, no_per=args.no_PER, stop_trick_at=args.stop_trick_at)
     except Exception as e:
         raise e
     finally:

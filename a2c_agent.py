@@ -29,7 +29,7 @@ class A2CAgent:
 
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
-              save_interval=10000, scheduler_interval=1000, clip_gradient=False, **kwargs):
+              save_interval=10000, scheduler_interval=1000, clip_gradient=False, stop_trick_at=0, **kwargs):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -60,6 +60,9 @@ class A2CAgent:
             state, self.env = env_gen.get_reset_env()
             traj_log_probs, traj_values, traj_rewards = [], [], []
             traj_entropy_term = torch.zeros(1).to(device)
+            if stop_trick_at and episode > stop_trick_at:
+                self.env.cone_trick = False
+                self.env.move_trick = False
 
             for step in range(self.env.max_steps):
                 value, policy_dist = self.model.forward(state)
