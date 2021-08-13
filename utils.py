@@ -133,7 +133,7 @@ def log(agent):
 
 def print_stats(agent, episode, print_interval, tricks_used):
     sys.stdout.write(
-        "episode: {}, stats for last {} episodes:\tavg reward: {:.3f}\tavg traj reward: {:.3f}\t"
+        "episode: {}, stats for last {} episodes:\tavg reward: {:.3f}\tavg traj reward: {:.3f}\t\t"
         "avg length: {:.3f}\t avg time: {:.3f}\ttricks_used:{}\n"
             .format(episode, print_interval, np.mean(agent.all_rewards[-print_interval:]),
                     np.sum(agent.all_rewards[-print_interval:]) / np.sum(agent.traj_lengths[-print_interval:]),
