@@ -131,13 +131,14 @@ def log(agent):
     sys.stdout.write('Logged info to {}\n'.format(agent.log_path))
 
 
-def print_stats(agent, episode, print_interval):
+def print_stats(agent, episode, print_interval, tricks_used):
     sys.stdout.write(
-        "episode: {}, stats for last {} episodes:\tavg reward: {:.3f}\t"
-        "avg length: {:.3f}\t avg time: {:.3f}\n"
+        "episode: {}, stats for last {} episodes:\tavg reward: {:.3f}\tavg traj reward: {:.3f}\t"
+        "avg length: {:.3f}\t avg time: {:.3f}\ttricks_used:{}\n"
             .format(episode, print_interval, np.mean(agent.all_rewards[-print_interval:]),
-                    np.mean(agent.all_lengths[-print_interval:]),
-                    np.mean(agent.all_times[-print_interval:])))
+                    np.sum(agent.all_rewards[-print_interval:]) / np.sum(agent.traj_lengths[-print_interval:]),
+                    np.mean(agent.all_lengths[-print_interval:]) + 1,
+                    np.mean(agent.all_times[-print_interval:]), tricks_used))
 
 
 class EnvWrapper:
@@ -215,6 +216,7 @@ class EnvWrapper:
             action = action.flatten().numpy()
         obs, reward, done, info = self.env.step(action)
         obs = self.process_obs(obs)
+        info['used_trick'] = False
         if self.cone_trick:
             x_pos = obs[0]
             y_pos = obs[1]
@@ -222,6 +224,7 @@ class EnvWrapper:
             if (alpha < math.pi / 4) and (y_pos > 1/3):
                 reward -= self.trick_fine
                 done = True
+                info['used_trick'] = True
         if self.move_trick:
             room = self.env.room_state
             player_pos = self.env.player_position
@@ -229,6 +232,7 @@ class EnvWrapper:
             if not is_valid:
                 reward -= self.trick_fine
                 done = True
+                info['used_trick'] = True
         return obs, reward, done, info
 
     def process_obs(self, obs):
