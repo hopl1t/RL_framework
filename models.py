@@ -354,6 +354,35 @@ class SplitActorCritic(nn.Module):
         return value, policy_dist
 
 
+class DoubleSplitActorCritic(nn.Module):
+    """
+    Both nets diverge and converge
+    This is the vanilla version with no discretization (for Sokoban for example)
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=400, device=torch.device('cpu'), **kwargs):
+        super(DoubleSplitActorCritic, self).__init__()
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+        self.common = nn.Sequential(nn.Linear(num_inputs, hidden_size//2), nn.LeakyReLU(),
+                                    nn.Linear(hidden_size//2, hidden_size), nn.LeakyReLU())
+        self.actor = nn.Sequential(nn.Linear(hidden_size, hidden_size//2), nn.LeakyReLU(),
+                                   nn.Linear(hidden_size//2, num_actions))
+        self.critic1 = nn.Sequential(nn.Linear(hidden_size, hidden_size//2), nn.LeakyReLU())
+        self.critic2 = nn.Linear(hidden_size//2, 1)
+        self.residual = nn.Sequential(nn.Linear(num_actions, hidden_size//2), nn.LeakyReLU())
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        common = self.common(state)
+        policy_dist = F.softmax(self.actor(common), dim=1)
+        critic1 = self.critic1(common)
+        residual = self.residual(policy_dist.flatten())
+        value = self.critic2(F.relu(critic1 + residual))
+        return value, policy_dist
+
+
 class SimpleDQN(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), **kwargs):
         super(SimpleDQN, self).__init__()
