@@ -29,7 +29,8 @@ class A2CAgent:
 
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
-              save_interval=10000, scheduler_interval=1000, clip_gradient=False, stop_trick_at=0, **kwargs):
+              save_interval=10000, scheduler_interval=1000, clip_gradient=False, stop_trick_at=0, no_cuda=False,
+              **kwargs):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -41,7 +42,7 @@ class A2CAgent:
         :param beta: float, information gain factor
         :return:
         """
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and not no_cuda:
             device = torch.device('cuda')
             sys.stdout.write('Using CUDA\n')
         else:
@@ -53,6 +54,7 @@ class A2CAgent:
         optimizer = optim.Adam(self.model.parameters(), lr=lr)
         scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=scheduler_gamma)
         tricks_used = 0
+        steps_count = 0
 
         for episode in range(epochs):
             ep_start_time = time.time()
@@ -60,11 +62,13 @@ class A2CAgent:
             state, self.env = env_gen.get_reset_env()
             traj_log_probs, traj_values, traj_rewards = [], [], []
             traj_entropy_term = torch.zeros(1).to(device)
-            if stop_trick_at and episode > stop_trick_at:
+            if stop_trick_at and episode == stop_trick_at:
                 self.env.cone_trick = False
                 self.env.move_trick = False
+                sys.stdout.write('Stopped using trick\n')
 
             for step in range(self.env.max_steps):
+                steps_count += 1
                 value, policy_dist = self.model.forward(state)
                 value = value.detach().item()
                 action, log_prob, entropy = self.env.process_action(policy_dist.detach().squeeze(0),
@@ -110,8 +114,9 @@ class A2CAgent:
                         self.all_rewards.append(np.sum(episode_rewards))
                         self.all_lengths.append(step)
                         if (episode % print_interval == 0) and episode != 0:
-                            utils.print_stats(self, episode, print_interval, tricks_used)
+                            utils.print_stats(self, episode, print_interval, tricks_used, steps_count)
                             tricks_used = 0
+                            steps_count = 0
                         if (episode % scheduler_interval == 0) and (episode != 0):
                             scheduler.step()
                             sys.stdout.write('stepped scheduler, new lr: {:.5f}\n'.format(scheduler.get_last_lr()[0]))

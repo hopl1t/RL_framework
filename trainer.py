@@ -55,6 +55,7 @@ def main(raw_args):
                         default=1e-2)
     parser.add_argument('-num_envs', type=int, nargs='?', help='Number of async envs to use if using async_env.'
                                                                ' default 2', default=2)
+    parser.add_argument('-no_cuda', action='store_true', help='Flag. If specified do not use cuda',default=False)
     parser.add_argument(
         '-cone_trick', action='store_true', help='Flag. If specified the cone trick for Lunar Lander is used',
         default=False)
@@ -93,7 +94,8 @@ def main(raw_args):
         agent.train(args.epochs, args.trajectory_len, env_gen, args.lr,
                     args.discount_gamma, args.scheduler_gamma, args.beta,
                     args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval,
-                    clip_gradient=args.clip_gradient, no_per=args.no_PER, stop_trick_at=args.stop_trick_at)
+                    clip_gradient=args.clip_gradient, no_per=args.no_PER, stop_trick_at=args.stop_trick_at,
+                    no_cuda=args.no_cuda)
     except Exception as e:
         raise e
     finally:

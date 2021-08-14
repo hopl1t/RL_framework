@@ -131,12 +131,12 @@ def log(agent):
     sys.stdout.write('Logged info to {}\n'.format(agent.log_path))
 
 
-def print_stats(agent, episode, print_interval, tricks_used):
+def print_stats(agent, episode, print_interval, tricks_used=0, steps_count=0):
     sys.stdout.write(
-        "episode: {}, stats for last {} episodes:\tavg reward: {:.3f}\tavg traj reward: {:.3f}\t\t"
-        "avg length: {:.3f}\t avg time: {:.3f}\ttricks_used:{}\n"
+        "eps: {}, stats for last {} eps:\tavg eps reward: {:.3f}\t\tavg eps step reward: {:.3f}\t\t"
+        "avg eps length: {:.3f}\t avg time: {:.3f}\ttricks_used:{}\n"
             .format(episode, print_interval, np.mean(agent.all_rewards[-print_interval:]),
-                    np.sum(agent.all_rewards[-print_interval:]) / np.sum(agent.traj_lengths[-print_interval:]),
+                    np.sum(agent.all_rewards[-print_interval:]) / steps_count,
                     np.mean(agent.all_lengths[-print_interval:]) + 1,
                     np.mean(agent.all_times[-print_interval:]), tricks_used))
 
@@ -226,6 +226,9 @@ class EnvWrapper:
                 done = True
                 info['used_trick'] = True
         if self.move_trick:
+            # Don't penalize for regular steps when using move trick
+            if reward == -0.1:
+                reward = 0
             room = self.env.room_state
             player_pos = self.env.player_position
             is_valid = is_valid_command(room, player_pos, MoveType(action))
