@@ -187,13 +187,26 @@ class EnvWrapper:
         elif action_type == ActionType.DISCRETIZIED:
             self.num_actions = self.env.action_space.shape[0]
             self.num_discrete = kwargs['num_discrete']
-            # Only features one arrangment of discrete mapping for now
-            low = self.env.action_space.low[0].item()
-            high = self.env.action_space.high[0].item()
-            self.discrete_array = torch.arange(low, high, (high - low) / self.num_discrete)
-            a = torch.arange(low, low / 2, (-low / 2) / (self.num_discrete // 2))
-            b = torch.arange(high / 2, high, (high / 2) / (self.num_discrete // 2))
-            self.split_discrete_array = torch.cat((a, b)) # in Lunar lander -0.5 to 0.5 is NOP for L\R engines
+            # specially taylored to this game
+            if self.env_name == 'LunarLanderContinuous-v2':
+                low_main = 0
+                high_main = 1
+                low_sides = -1
+                middle_sides = 0.5
+                high_sides = 1
+                self.discrete_array = torch.cat([torch.tensor([-1]),
+                                     torch.flip(torch.linspace(high_main, low_main, self.num_discrete - 1), dims=[0])])
+                a = torch.linspace(low_sides, -middle_sides, self.num_discrete // 2)
+                b = torch.cat([torch.tensor([0]), torch.flip(
+                                     torch.linspace(high_sides, middle_sides, self.num_discrete // 2), dims=[0])])
+                self.split_discrete_array = torch.cat((a, b))
+            else:
+                low = self.env.action_space.low[0].item()
+                high = self.env.action_space.high[0].item()
+                self.discrete_array = torch.arange(low, high, (high - low) / self.num_discrete)
+                a = torch.arange(low, low / 2, (-low / 2) / (self.num_discrete // 2))
+                b = torch.arange(high / 2, high, (high / 2) / (self.num_discrete // 2))
+                self.split_discrete_array = torch.cat((a, b)) # in Lunar lander -0.5 to 0.5 is NOP for L\R engines
 
     def reset(self):
         obs = self.env.reset()
