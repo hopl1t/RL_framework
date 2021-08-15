@@ -89,7 +89,7 @@ class A2CAgent:
 
                 if done or ((step % trajectory_len == 0) and step != 0):
                     self.traj_lengths.append((step % trajectory_len) + 1)
-                    q_val, _ = self.model.forward(new_state)
+                    q_val, _ = self.model.forward(new_state) # this will be 0 if the episode has ended
                     q_val = q_val.detach().item()
                     q_vals = torch.zeros(len(traj_values)).to(device)
                     for t in reversed(range(len(traj_rewards))):
@@ -113,6 +113,9 @@ class A2CAgent:
                         self.all_times.append(time.time() - ep_start_time)
                         self.all_rewards.append(np.sum(episode_rewards))
                         self.all_lengths.append(step)
+                        if np.mean(self.all_rewards[-100:]) >= 200:
+                            print('='*10, 'episode {}, Last 100 episodes averaged 200 points '.format(episode), '='*10)
+                            return
                         if (episode % print_interval == 0) and episode != 0:
                             utils.print_stats(self, episode, print_interval, tricks_used, steps_count)
                             tricks_used = 0
@@ -138,4 +141,5 @@ class A2CAgent:
         _, policy_dist = self.model.forward(state)
         dist = policy_dist.detach().squeeze(0)
         action = torch.multinomial(dist, 1).item()
+        self.model.train()
         return action

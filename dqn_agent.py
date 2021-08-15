@@ -86,7 +86,10 @@ class DQNAgent:
 
                 if done or ((step % trajectory_len == 0) and step != 0):
                     if not no_per: # IE use PER
-                        per = sorted(experience, key=lambda tup: tup[-1])[-len(experience)//2:]
+                        sorted_exp = sorted(experience, key=lambda tup: tup[-1])
+                        high_delta = sorted_exp[-len(experience)//2:]
+                        low_delta = sorted_exp[:len(experience)//2]
+                        per = high_delta + random.choices(low_delta, k=len(experience)//6)
                     else:
                         per = experience
                     random.shuffle(per)
@@ -106,6 +109,9 @@ class DQNAgent:
                         self.all_times.append(time.time() - ep_start_time)
                         self.all_rewards.append(np.sum(episode_rewards))
                         self.all_lengths.append(step)
+                        if np.mean(self.all_rewards[-100:]) >= 200:
+                            print('='*10, 'episode {}, Last 100 episodes averaged 200 points '.format(episode), '='*10)
+                            return
                         if (episode % print_interval == 0) and episode != 0:
                             utils.print_stats(self, episode, print_interval)
                         if (episode % scheduler_interval == 0) and (episode != 0):
@@ -129,6 +135,7 @@ class DQNAgent:
         _, policy_dist = self.model.forward(state)
         dist = policy_dist.detach().squeeze(0)
         action = torch.multinomial(dist, 1).item()
+        self.model.train()
         return action
 
     def get_delta(self, q_vals, action_idx, target):

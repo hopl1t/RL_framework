@@ -189,6 +189,7 @@ class EnvWrapper:
             self.num_discrete = kwargs['num_discrete']
             # specially taylored to this game
             if self.env_name == 'LunarLanderContinuous-v2':
+                assert self.num_discrete % 2
                 low_main = 0
                 high_main = 1
                 low_sides = -1
