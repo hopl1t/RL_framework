@@ -10,6 +10,7 @@ import sys
 import pickle
 import gym_sokoban # Don't remove this
 import gym
+import random
 import torch.nn.functional as F
 
 
@@ -26,6 +27,7 @@ class ActionType(Enum):
     PUSH_PULL = 3
     GAUSSIAN = 4
     DISCRETIZIED = 5
+    FIXED_LUNAR = 6
 
 
 class MoveType(Enum):
@@ -50,6 +52,30 @@ class TileType(Enum):
 
 PULL_MOVES = [MoveType.PULL_UP, MoveType.PULL_DOWN, MoveType.PULL_LEFT, MoveType.PULL_RIGHT]
 BOX_TILES = [TileType.BOX, TileType.BOX_ON_TARGET]
+FIXED_ACTIONS = np.array([[-1, 0], [-1, -1], [-1, 1], [0, 0], [0, -1], [0, 1], [1, 0], [1, -1], [1, 1]])
+
+
+class PERDataLoader(torch.utils.data.DataLoader):
+    def __init__(self, experience, use_per, low_ratio=6):
+        super(PERDataLoader, self).__init__(experience)
+        self.use_per = True
+        self.low_ratio = low_ratio
+        if use_per:
+            sorted_exp = sorted(experience, key=lambda tup: tup[-1])
+            high_delta = sorted_exp[-len(experience) // 2:]
+            low_delta = sorted_exp[:len(experience) // 2]
+            per = high_delta + random.choices(low_delta, k=len(experience) // low_ratio)
+            self.exp = per
+        else:
+            self.exp = experience
+
+    def __getitem__(self, idx):
+        # returns state, action_idx, reward and new_q
+        exp = self.exp[idx]
+        return exp[0], exp[1], exp[2], exp[3]
+
+    def __len__(self):
+        return len(self.exp)
 
 
 def get_tiles(room, player_pos, move):
@@ -141,6 +167,10 @@ def print_stats(agent, episode, print_interval, tricks_used=0, steps_count=0):
                     np.mean(agent.all_times[-print_interval:]), tricks_used))
 
 
+def evaluate(agent, num_episodes, render, is_notebook=False):
+    pass
+
+
 class EnvWrapper:
     """
     Wrapps a Sokoban gym environment s.t. we can use the room_state property instead of regular state
@@ -208,13 +238,15 @@ class EnvWrapper:
                 a = torch.arange(low, low / 2, (-low / 2) / (self.num_discrete // 2))
                 b = torch.arange(high / 2, high, (high / 2) / (self.num_discrete // 2))
                 self.split_discrete_array = torch.cat((a, b)) # in Lunar lander -0.5 to 0.5 is NOP for L\R engines
+        elif action_type == ActionType.FIXED_LUNAR:
+            self.num_actions = len(FIXED_ACTIONS)
 
     def reset(self):
         obs = self.env.reset()
         return self.process_obs(obs)
 
     def step(self, action):
-        if self.action_type == ActionType.REGULAR:
+        if self.action_type in [ActionType.REGULAR, ActionType.FIXED_LUNAR]:
             pass # No change if action type is regular
         elif self.action_type == ActionType.PUSH_ONLY:
             # maps from 0-3 to 1-4 since 0 is NOP
@@ -279,6 +311,11 @@ class EnvWrapper:
                 action = self.discrete_array[action_idx]
             log_prob = torch.log(torch.gather(policy_dist, 1, action_idx).squeeze(1))
             entropy = Categorical(probs=dist).entropy().sum()
+        elif self.action_type == ActionType.FIXED_LUNAR:
+            action_idx = torch.multinomial(dist, 1).item()
+            action = FIXED_ACTIONS[action_idx]
+            log_prob = torch.log(policy_dist[action_idx])
+            entropy = Categorical(probs=dist).entropy()
         else:
             action = torch.multinomial(dist, 1).item()
             log_prob = torch.log(policy_dist[action])
@@ -301,6 +338,9 @@ class EnvWrapper:
                 action = torch.stack((self.discrete_array[action_idx[0]], self.split_discrete_array[action_idx[1]]))
             else:
                 action = self.discrete_array[action_idx]
+        elif self.action_type == ActionType.FIXED_LUNAR:
+            action_idx = torch.multinomial(activated, 1).item()
+            action = FIXED_ACTIONS[action_idx]
         else:
             raise NotImplementedError
         return action, action_idx
@@ -311,7 +351,7 @@ class EnvWrapper:
         :param q_vals: Tensor - q values per action
         :return: Int - action to take
         """
-        if self.action_type == ActionType.REGULAR:
+        if self.action_type in [ActionType.REGULAR, ActionType.FIXED_LUNAR]:
             q_val = q_vals.max()
         elif self.action_type == ActionType.DISCRETIZIED:
             q_val, _ = q_vals.max(dim=1) # this is actually q_vals

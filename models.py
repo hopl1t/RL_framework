@@ -43,7 +43,7 @@ class CommonActorCritic(nn.Module):
 
     def forward(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        common = F.relu(self.common_linear(state))
+        common = F.leaky_relu(self.common_linear(state))
         value = self.critic_linear(common)
         policy_dist = F.softmax(self.actor_linear(common), dim=1)
 

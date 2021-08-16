@@ -90,20 +90,17 @@ class A2CAgent:
 
                 if done or ((step % trajectory_len == 0) and step != 0):
                     self.traj_lengths.append((step % trajectory_len) + 1)
+                    q_val, _ = self.model.forward(new_state) # this is actually last_val and not yet a q value
+                    q_val = q_val.detach().item()
+                    q_vals = torch.zeros(len(traj_values)).to(device)
+                    for t in reversed(range(len(traj_rewards))):
+                        q_val = traj_rewards[t] + discount_gamma * q_val
+                        q_vals[t] = q_val
                     traj_values = torch.FloatTensor(traj_values).to(device)
                     traj_log_probs = torch.stack(traj_log_probs, dim=traj_log_probs[0].dim()) # for more than one action dim will be 1
-                    returns = torch.zeros(len(traj_values)).to(device)
-                    r = 0
-                    for t in reversed(range(len(traj_rewards))):
-                        r = traj_rewards[t] + discount_gamma * r
-                        returns[t] = r
-                    if len(returns) == 1: # no std
-                        returns[0] = 0
-                    else:
-                        returns = (returns - returns.mean()) / (returns.std() + 1e-10)
-                    advantage = returns - traj_values
-                    actor_loss = (-traj_log_probs * advantage).sum()
-                    critic_loss = F.smooth_l1_loss(traj_values, returns).sum()
+                    advantage = q_vals - traj_values
+                    actor_loss = (-traj_log_probs * advantage).mean()
+                    critic_loss = 0.5 * advantage.pow(2).mean()
                     ac_loss = (actor_loss + critic_loss + beta * traj_entropy_term)
                     optimizer.zero_grad()
                     ac_loss.backward()

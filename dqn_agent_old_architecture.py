@@ -8,7 +8,6 @@ from torch.optim import lr_scheduler
 import utils
 import time
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 
 class DQNAgent:
@@ -74,7 +73,7 @@ class DQNAgent:
                         new_q = self.env.off_policy(new_q_vals)
                     else:
                         new_q = self.get_zero_q().to(self.model.device)
-                target = (reward + discount_gamma * new_q).view(1, -1, 1)
+                target = self.get_target(new_q, reward)
                 delta = self.get_delta(q_vals, action_idx, target)
                 experience.append((state, action_idx, reward, new_q, delta))
                 state = new_state
@@ -86,14 +85,24 @@ class DQNAgent:
                     self.log_buffer.append(info.__repr__() + '\n')
 
                 if done or ((step % trajectory_len == 0) and step != 0):
-                    dataset = utils.PERDataLoader(experience, use_per=(not no_per))
-                    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
-                    for states, action_idxs, rewards, new_qs in dataloader:
+                    if not no_per: # IE use PER
+                        sorted_exp = sorted(experience, key=lambda tup: tup[-1])
+                        high_delta = sorted_exp[-len(experience)//2:]
+                        low_delta = sorted_exp[:len(experience)//2]
+                        per = high_delta + random.choices(low_delta, k=len(experience)//6)
+                    else:
+                        per = experience
+                    random.shuffle(per)
+                    for e in per:
+                        # TODO: SWITCH TO BATCHS HERE (NOT ONE BY ONE)
+                        state = e[0]
+                        action_idx = e[1]
+                        reward = e[2]
+                        new_q = e[3]
                         prediction = self.predict(state, action_idx)
-                        target = (reward + discount_gamma * new_q).view(1, -1, 1)
+                        target = self.get_target(new_q, reward)
                         optimizer.zero_grad()
                         loss = F.mse_loss(prediction, target)
-                        # loss = F.smooth_l1_loss(prediction, target) #.sum()
                         loss.backward()
                         optimizer.step()
                     if done:
@@ -153,6 +162,17 @@ class DQNAgent:
         else:
             raise NotImplementedError
         return prediction
+
+    def get_target(self, new_q, reward):
+        # TODO: replace with .view(1,-1,1)
+        if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
+            # target = torch.FloatTensor([new_q + reward]).unsqueeze(0)
+            target = (new_q + reward).view(1, 1, 1)
+        elif self.env.action_type == utils.ActionType.DISCRETIZIED:
+            target = (new_q + reward).view(1, self.env.num_actions, 1)
+        else:
+            raise NotImplementedError
+        return target.to(self.model.device)
 
     def get_zero_q(self):
         # TODO: replace with .view(1,-1,1)
