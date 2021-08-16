@@ -50,6 +50,30 @@ class CommonActorCritic(nn.Module):
         return value, policy_dist
 
 
+class DoubleCommonActorCritic(nn.Module):
+    """
+    First FC layer is common between both nets
+    """
+    def __init__(self, num_inputs, num_actions, hidden_size=512, device=torch.device('cpu'), **kwargs):
+        super(DoubleCommonActorCritic, self).__init__()
+
+        self.num_actions = num_actions
+        self.num_inputs = num_inputs
+        self.common_linear = nn.Sequential(nn.Linear(num_inputs, hidden_size), nn.LeakyReLU(),
+                                           nn.Linear(hidden_size, hidden_size // 2), nn.LeakyReLU())
+        self.critic_linear = nn.Linear(hidden_size // 2, 1)
+        self.actor_linear = nn.Linear(hidden_size // 2, num_actions)
+        self.device = device
+        utils.init_weights(self)
+
+    def forward(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        common = self.common_linear(state)
+        value = self.critic_linear(common)
+        policy_dist = F.softmax(self.actor_linear(common), dim=1)
+        return value, policy_dist
+
+
 class ConvActorCritic(nn.Module):
     """
     Uses two common 3x3 convs on the first layer followed by a common linear.
@@ -388,13 +412,16 @@ class SimpleDQN(nn.Module):
         super(SimpleDQN, self).__init__()
         self.net = nn.Sequential(nn.Linear(num_inputs, hidden_size // 2), nn.LeakyReLU(),
                                  nn.Linear(hidden_size // 2, hidden_size), nn.LeakyReLU(),
-                                 nn.Linear(hidden_size, hidden_size // 2), nn.LeakyReLU(),
-                                 nn.Linear(hidden_size // 2, num_actions))
+                                 nn.Linear(hidden_size, num_actions))
         self.device = device
+        self.num_actions = num_actions
         utils.init_weights(self)
 
     def forward(self, state):
-        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        if isinstance(state, torch.Tensor):
+            state = state.float().to(self.device)
+        else:
+            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         return self.net(state)
 
 
@@ -403,13 +430,15 @@ class DiscretizedDQN(nn.Module):
         super(DiscretizedDQN, self).__init__()
         self.net = nn.Sequential(nn.Linear(num_inputs, hidden_size // 2), nn.LeakyReLU(),
                                  nn.Linear(hidden_size // 2, hidden_size), nn.LeakyReLU(),
-                                 nn.Linear(hidden_size, hidden_size // 2), nn.LeakyReLU(),
-                                 nn.Linear(hidden_size // 2, num_actions * num_discrete))
+                                 nn.Linear(hidden_size, num_actions * num_discrete))
         self.num_actions = num_actions
         self.num_discrete = num_discrete
         self.device = device
         utils.init_weights(self)
 
     def forward(self, state):
-        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        return self.net(state).view(self.num_actions, self.num_discrete)
+        if isinstance(state, torch.Tensor):
+            state = state.float().to(self.device)
+        else:
+            state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        return self.net(state).view(-1, self.num_actions, self.num_discrete).squeeze(0)

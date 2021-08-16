@@ -87,13 +87,13 @@ class DQNAgent:
 
                 if done or ((step % trajectory_len == 0) and step != 0):
                     dataset = utils.PERDataLoader(experience, use_per=(not no_per))
-                    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+                    dataloader = DataLoader(dataset, batch_size=min(len(dataset), 64), shuffle=True)
                     for states, action_idxs, rewards, new_qs in dataloader:
-                        prediction = self.predict(state, action_idx)
-                        target = (reward + discount_gamma * new_q).view(1, -1, 1)
+                        predictions = self.predict(states, action_idxs)
+                        targets = (rewards.unsqueeze(1) + discount_gamma * new_qs).unsqueeze(-1) #.view(1, -1, 1)
                         optimizer.zero_grad()
-                        loss = F.mse_loss(prediction, target)
-                        # loss = F.smooth_l1_loss(prediction, target) #.sum()
+                        loss = F.mse_loss(predictions, targets.float())
+                        # loss = -F.smooth_l1_loss(predictions, targets.float()) # Huber Loss
                         loss.backward()
                         optimizer.step()
                     if done:
@@ -145,11 +145,13 @@ class DQNAgent:
         q_vals = self.model.forward(state)
         if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
             # prediction = q_vals.squeeze(0)[action_idx].unsqueeze(0).unsqueeze(0)
-            prediction = q_vals.squeeze(0)[action_idx].view(1,1,1)
+            # prediction = q_vals.squeeze(0)[action_idx].view(1, -1, 1) # (1,1,1)
+            prediction = q_vals.gather(-1, action_idx).view(1, -1, 1)
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
             # prediction = torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)]).unsqueeze(0)
-            prediction = torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)])\
-                .view(1, self.env.num_actions, 1)
+            prediction = q_vals.gather(-1,action_idx.squeeze(0))
+                # torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)])\
+                # .view(1, -1, 1) # .view(1, self.env.num_actions, 1)
         else:
             raise NotImplementedError
         return prediction
@@ -157,9 +159,9 @@ class DQNAgent:
     def get_zero_q(self):
         # TODO: replace with .view(1,-1,1)
         if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
-            zeros = torch.zeros(1, dtype=torch.float32)
+            zeros = torch.zeros(1, dtype=torch.float32).squeeze(0)
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
-            zeros = torch.zeros(self.env.num_actions, dtype=torch.float32)
+            zeros = torch.zeros(self.env.num_actions, dtype=torch.float32).squeeze(0)
         else:
             raise NotImplementedError
         return zeros
