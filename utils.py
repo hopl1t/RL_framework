@@ -52,8 +52,8 @@ class TileType(Enum):
 
 PULL_MOVES = [MoveType.PULL_UP, MoveType.PULL_DOWN, MoveType.PULL_LEFT, MoveType.PULL_RIGHT]
 BOX_TILES = [TileType.BOX, TileType.BOX_ON_TARGET]
-FIXED_ACTIONS = np.array([[-1, 0], [-1, -1], [-1, 1], [0, 0], [0, -1], [0, 1], [1, 0], [1, -1], [1, 1]])
-# FIXED_ACTIONS = np.array([[-1, 0], [1, 0], [-1, -1], [-1, 1]])
+# FIXED_ACTIONS = np.array([[-1, 0], [-1, -1], [-1, 1], [0, 0], [0, -1], [0, 1], [1, 0], [1, -1], [1, 1]])
+FIXED_ACTIONS = np.array([[-1, 0], [1, 0], [-1, -1], [-1, 1]])
 
 
 class PERDataLoader(torch.utils.data.DataLoader):
@@ -71,9 +71,9 @@ class PERDataLoader(torch.utils.data.DataLoader):
             self.exp = experience
 
     def __getitem__(self, idx):
-        # returns state, action_idx, reward, new_state, done
+        # returns state, action_idx, reward and new_q
         exp = self.exp[idx]
-        return exp[0], exp[1], exp[2], exp[3], exp[4]
+        return exp[0], exp[1], exp[2], exp[3]
 
     def __len__(self):
         return len(self.exp)
@@ -361,10 +361,7 @@ class EnvWrapper:
         :return: Int - action to take
         """
         if self.action_type in [ActionType.REGULAR, ActionType.FIXED_LUNAR]:
-            if q_vals.dim() > 1:
-                q_val, _ = q_vals.max(dim=-1)
-            else:
-                q_val = q_vals.max()
+            q_val = q_vals.max()
         elif self.action_type == ActionType.DISCRETIZIED:
             q_val, _ = q_vals.max(dim=1) # this is actually q_vals
         else:

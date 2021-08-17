@@ -72,20 +72,14 @@ class DQNAgent:
                     q_vals = self.model.forward(state)
                     action, action_idx = self.env.on_policy(q_vals, epsilon)
                     new_state, reward, done, info = self.env.step(action)
-
-                    ##### WORK IN PROGRESS
-                    new_q_vals = self.model.forward(new_state).detach()
-                    new_q = self.env.off_policy(new_q_vals)
-                    # if not done:
-                    #     new_q_vals = self.model.forward(new_state).detach()
-                    #     new_q = self.env.off_policy(new_q_vals)
-                    # else:
-                    #     new_q = self.get_zero_q().to(self.model.device)
+                    if not done:
+                        new_q_vals = self.model.forward(new_state).detach()
+                        new_q = self.env.off_policy(new_q_vals)
+                    else:
+                        new_q = self.get_zero_q().to(self.model.device)
                 target = (reward + discount_gamma * new_q).view(1, -1, 1)
                 delta = self.get_delta(q_vals, action_idx, target)
-                ##### WORK
-                experience.append((state, action_idx, reward, new_state, done, delta))
-                # experience.append((state, action_idx, reward, new_q, delta))
+                experience.append((state, action_idx, reward, new_q, delta))
                 state = new_state.copy()
                 if step == self.env.max_steps - 1:
                     done = True
@@ -97,20 +91,11 @@ class DQNAgent:
                 if done or ((step % trajectory_len == 0) and step != 0):
                     dataset = utils.PERDataLoader(experience, use_per=(not no_per))
                     dataloader = DataLoader(dataset, batch_size=min(len(dataset), 64), shuffle=True)
-                    for states, action_idxs, rewards, new_states, done in dataloader:
-                        with torch.no_grad():
-                            new_qs = self.model(new_states)
-                            off_policy = self.env.off_policy(new_qs)
-                            off_policy *= (1 - done.int()) # Q=0 where action leads to end of episode
-                        targets = (rewards + discount_gamma * off_policy).view(-1, 1)
-
-                        predictions = self.model(states)
-                        targets_full = predictions.detach().clone()
-                        targets_full.scatter_(-1, action_idxs.squeeze(-1), targets.float())
-                        # predictions = self.predict(states, action_idxs).view(-1, 1)
+                    for states, action_idxs, rewards, new_qs in dataloader:
+                        targets = (rewards + discount_gamma * new_qs).view(-1, 1)
+                        predictions = self.predict(states, action_idxs).view(-1, 1)
                         optimizer.zero_grad()
-                        loss = F.mse_loss(predictions, targets_full.float())
-                        # loss = F.mse_loss(predictions, targets.float())
+                        loss = F.mse_loss(predictions, targets.float())
                         # loss = -F.smooth_l1_loss(predictions, targets.float()) # Huber Loss
                         loss.backward()
                         optimizer.step()
