@@ -101,7 +101,7 @@ class DQNAgent:
                         with torch.no_grad():
                             new_qs = self.model(new_states)
                             off_policy = self.env.off_policy(new_qs)
-                            off_policy *= (1 - dones.int()) # Q=0 where action leads to end of episode
+                            off_policy *= (1 - dones.int().to(device)) # Q=0 where action leads to end of episode
                         targets = (rewards + discount_gamma * off_policy).view(-1, 1)
 
                         predictions = self.model(states)
