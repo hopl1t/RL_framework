@@ -97,11 +97,11 @@ class DQNAgent:
                 if done or ((step % trajectory_len == 0) and step != 0):
                     dataset = utils.PERDataLoader(experience, use_per=(not no_per))
                     dataloader = DataLoader(dataset, batch_size=min(len(dataset), 64), shuffle=True)
-                    for states, action_idxs, rewards, new_states, dones in dataloader:
+                    for states, action_idxs, rewards, new_states, done in dataloader:
                         with torch.no_grad():
                             new_qs = self.model(new_states)
                             off_policy = self.env.off_policy(new_qs)
-                            off_policy *= (1 - dones.int()) # Q=0 where action leads to end of episode
+                            off_policy *= (1 - done.int()) # Q=0 where action leads to end of episode
                         targets = (rewards + discount_gamma * off_policy).view(-1, 1)
 
                         predictions = self.model(states)
