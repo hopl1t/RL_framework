@@ -52,7 +52,8 @@ class TileType(Enum):
 
 PULL_MOVES = [MoveType.PULL_UP, MoveType.PULL_DOWN, MoveType.PULL_LEFT, MoveType.PULL_RIGHT]
 BOX_TILES = [TileType.BOX, TileType.BOX_ON_TARGET]
-FIXED_ACTIONS = np.array([[-1, 0], [-1, -1], [-1, 1], [0, 0], [0, -1], [0, 1], [1, 0], [1, -1], [1, 1]])
+# FIXED_ACTIONS = np.array([[-1, 0], [-1, -1], [-1, 1], [0, 0], [0, -1], [0, 1], [1, 0], [1, -1], [1, 1]])
+FIXED_ACTIONS = np.array([[-1, 0], [1, 0], [-1, -1], [-1, 1]])
 
 
 class PERDataLoader(torch.utils.data.DataLoader):
@@ -241,6 +242,7 @@ class EnvWrapper:
         elif action_type == ActionType.FIXED_LUNAR:
             self.num_actions = len(FIXED_ACTIONS)
 
+
     def reset(self):
         obs = self.env.reset()
         return self.process_obs(obs)
@@ -322,24 +324,31 @@ class EnvWrapper:
             entropy = Categorical(probs=dist).entropy()
         return action, log_prob, entropy
 
-    def on_policy(self, q_vals):
+    def on_policy(self, q_vals, eps=0):
         """
         Returns on policy (epsilon soft) action for a DQN net
+        Returns epsilon soft by default. If eps is specified will return epsilon greedy
+        with the given eps value.
         :param q_vals: Tensor - q values per action
         :return: Int - action to take
         """
-        activated = F.softmax(q_vals, dim=1)
-        if self.action_type == ActionType.REGULAR:
-            action = torch.multinomial(activated, 1).item()
-            action_idx = torch.tensor(action).unsqueeze(0)
-        elif self.action_type == ActionType.DISCRETIZIED:
+        if eps: # epsilon greedy option
+            if np.random.rand() <= eps:
+                action_idx = torch.randint(0, q_vals.shape[-1], (q_vals.shape[0], 1))
+            else:
+                action_idx = torch.argmax(q_vals, axis=-1).view(q_vals.shape[0], -1)
+        else: # epsilon soft option
+            activated = F.softmax(q_vals, dim=1)
             action_idx = torch.multinomial(activated, 1)
-            if self.env_name == 'LunarLanderContinuous-v2':
+
+        if self.action_type == ActionType.REGULAR:
+            action = action_idx.item()
+        elif self.action_type == ActionType.DISCRETIZIED:
+            if self.env_name == 'LunarLanderContinuous-v2': # use special discrete arrays
                 action = torch.stack((self.discrete_array[action_idx[0]], self.split_discrete_array[action_idx[1]]))
             else:
                 action = self.discrete_array[action_idx]
         elif self.action_type == ActionType.FIXED_LUNAR:
-            action_idx = torch.multinomial(activated, 1).item()
             action = FIXED_ACTIONS[action_idx]
         else:
             raise NotImplementedError

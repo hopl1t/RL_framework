@@ -10,6 +10,8 @@ import time
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+EPSILON_MIN = 0.01
+
 
 class DQNAgent:
     """
@@ -31,7 +33,8 @@ class DQNAgent:
 
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
-              save_interval=10000, scheduler_interval=1000, no_per=False, no_cuda=False, **kwargs):
+              save_interval=10000, scheduler_interval=1000, no_per=False, no_cuda=False, epsilon=0,
+              epsilon_decay=0.997, **kwargs):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -67,7 +70,7 @@ class DQNAgent:
 
                 with torch.no_grad():
                     q_vals = self.model.forward(state)
-                    action, action_idx = self.env.on_policy(q_vals)
+                    action, action_idx = self.env.on_policy(q_vals, epsilon)
                     new_state, reward, done, info = self.env.step(action)
                     if not done:
                         new_q_vals = self.model.forward(new_state).detach()
@@ -77,7 +80,7 @@ class DQNAgent:
                 target = (reward + discount_gamma * new_q).view(1, -1, 1)
                 delta = self.get_delta(q_vals, action_idx, target)
                 experience.append((state, action_idx, reward, new_q, delta))
-                state = new_state
+                state = new_state.copy()
                 if step == self.env.max_steps - 1:
                     done = True
                 traj_rewards.append(reward)
@@ -89,8 +92,8 @@ class DQNAgent:
                     dataset = utils.PERDataLoader(experience, use_per=(not no_per))
                     dataloader = DataLoader(dataset, batch_size=min(len(dataset), 64), shuffle=True)
                     for states, action_idxs, rewards, new_qs in dataloader:
-                        predictions = self.predict(states, action_idxs)
-                        targets = (rewards.unsqueeze(1) + discount_gamma * new_qs).unsqueeze(-1) #.view(1, -1, 1)
+                        targets = (rewards + discount_gamma * new_qs).view(-1, 1)
+                        predictions = self.predict(states, action_idxs).view(-1, 1)
                         optimizer.zero_grad()
                         loss = F.mse_loss(predictions, targets.float())
                         # loss = -F.smooth_l1_loss(predictions, targets.float()) # Huber Loss
@@ -100,6 +103,11 @@ class DQNAgent:
                         self.all_times.append(time.time() - ep_start_time)
                         self.all_rewards.append(np.sum(episode_rewards))
                         self.all_lengths.append(step)
+                        if np.mean(self.all_rewards[-100:]) >= 200:
+                            print('='*10, 'episode {}, Last 100 episodes averaged 200 points '.format(episode), '='*10)
+                            return
+                        if epsilon > EPSILON_MIN:
+                            epsilon *= epsilon_decay
                         if np.mean(self.all_rewards[-100:]) >= 200:
                             print('='*10, 'episode {}, Last 100 episodes averaged 200 points '.format(episode), '='*10)
                             return
@@ -134,8 +142,7 @@ class DQNAgent:
         if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
             delta = abs(q_vals.detach().squeeze(0)[action_idx] - target) + 0.001
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
-            delta = abs((torch.stack([q_vals.detach()[i][action_idx[i]]
-                                  for i in range(action_idx.dim())], dim=1) - target)).sum() + 0.001
+            delta = abs((torch.gather(q_vals, -1, action_idx) - target)).sum() + 0.001
         else:
             raise NotImplementedError
         return delta
@@ -146,7 +153,7 @@ class DQNAgent:
         if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
             # prediction = q_vals.squeeze(0)[action_idx].unsqueeze(0).unsqueeze(0)
             # prediction = q_vals.squeeze(0)[action_idx].view(1, -1, 1) # (1,1,1)
-            prediction = q_vals.gather(-1, action_idx).view(1, -1, 1)
+            prediction = q_vals.gather(-1, action_idx.squeeze(-1)).view(1, -1, 1)
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
             # prediction = torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)]).unsqueeze(0)
             prediction = q_vals.gather(-1,action_idx.squeeze(0))

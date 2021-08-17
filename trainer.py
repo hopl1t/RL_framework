@@ -42,6 +42,10 @@ def main(raw_args):
     parser.add_argument('-scheduler_gamma', type=float, nargs='?', help='Scheduling factor', default=0.999)
     parser.add_argument('-scheduler_interval', type=int, nargs='?', help='Interval to step scheduler', default=1000)
     parser.add_argument('-beta', type=float, nargs='?', help='Info loss factor', default=1e-3)
+    parser.add_argument('-epsilon', type=float, nargs='?', help='Epsilon for epsilon greedy policy for DQN only.'
+                                                            ' Default is 0 and then epsilon-soft is used', default=0)
+    parser.add_argument('-epsilon_decay', type=float, nargs='?', help='Epsilon decay for epsilon greedy policy (DQN only). '
+                                                                  'Default is 0.997', default=0.997)
     parser.add_argument('-std_bias', type=float, nargs='?', help='std bias for softplus rectification if using gaussian'
                         , default=5)
     parser.add_argument('-print_interval', type=int, nargs='?', help='Print stats to screen evey x steps', default=1000)
@@ -96,7 +100,8 @@ def main(raw_args):
                     args.discount_gamma, args.scheduler_gamma, args.beta,
                     args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval,
                     clip_gradient=args.clip_gradient, no_per=args.no_PER, stop_trick_at=args.stop_trick_at,
-                    no_cuda=args.no_cuda, save_interval=args.save_interval)
+                    no_cuda=args.no_cuda, save_interval=args.save_interval, epsilon=args.epsilon,
+                    epsilon_decay=args.epsilon_decay)
     except Exception as e:
         raise e
     finally:
