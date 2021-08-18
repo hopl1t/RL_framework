@@ -11,6 +11,7 @@ import pickle
 import gym_sokoban # Don't remove this
 import gym
 import random
+import os
 import torch.nn.functional as F
 try:
     import matplotlib.pyplot as plt
@@ -179,37 +180,17 @@ def print_stats(agent, episode, print_interval, tricks_used=0, steps_count=0):
                     np.mean(agent.all_times[-print_interval:]), tricks_used))
 
 
-def moving_average(iterable, window):
-    averages = []
-    for i in range(len(iterable)):
-        averages.append(np.mean(iterable[max(0, i-window):i]))
-    return averages
-
-
-def show_video():
-    mp4list = glob.glob('video/*.mp4')
-    if len(mp4list) > 0:
-        mp4 = mp4list[0]
-        video = io.open(mp4, 'r+b').read()
-        encoded = base64.b64encode(video)
-        ipythondisplay.display(HTML(data="""<video alt=\"test\" autoplay loop controls style=\"height: 400px;\"><source src=\"data:video/mp4;base64,{0}\" type=\"video/mp4\" /></video>""".format(encoded.decode('ascii'))))
-    else:
-        print("Could not find video")
-
-
-def wrap_env(env):
-    env = Monitor(env, './video', force=True)
-    return env
-
-
-def evaluate(agent, num_episodes, render, is_notebook=False):
+def evaluate(agent, env_name, obs_type, action_type, num_discrete=1, num_episodes=1, render=True):
     agent.model.eval()
+    env_wrapper = EnvWrapper(env_name, obs_type, action_type, 5000, num_discrete=num_discrete,
+                     cone_trick=False, move_trick=False, trick_fine=False)
     all_rewards = []
     all_episode_rewards = []
-    for epispode in num_episodes:
+    for epispode in range(num_episodes):
         if render:
-            sys.stdout.write('Evaluating episode {}'.format(epispode))
-            agent.env.env = env_wrap(agent.env.env)
+            sys.stdout.write('Saving render video to {}\n'.format(os.path.join(os.getcwd(), 'video')))
+            # env_wrapper.env = Monitor(env_wrapper.env, './video', force=True)
+            agent.env.env = Monitor(agent.env.env, './video', force=True)
         episode_rewards = []
         obs = agent.env.reset()
         done = False
@@ -217,22 +198,10 @@ def evaluate(agent, num_episodes, render, is_notebook=False):
             action = agent.act(obs)
             obs, reward, done, info = agent.env.step(action, is_eval=True)
             all_rewards.append(reward)
+            episode_rewards.append(reward)
         all_episode_rewards.append(np.mean(episode_rewards))
-        if render:
-            if is_notebook:
-                # plt.imshow(env.render('rgb_array'))
-                show_video()
-            else:
-                raise NotImplementedError
-        if is_notebook:
-            fig, axes = plt.subplots(1, 2, figsize=(7,7))
-            axes[0].plot(all_rewards)
-            axes[0].plot(moving_average(all_rewards))
-            axes[0].set_title('Rewards per step')
-            axes[1].plot(all_episode_rewards)
-            axes[1].plot(moving_average(all_episode_rewards))
-            axes[1].set_title('Rewards per episode')
     agent.model.train()
+    return all_rewards, all_episode_rewards
 
 
 class EnvWrapper:
@@ -371,7 +340,7 @@ class EnvWrapper:
             action = action.detach()
         elif self.action_type == ActionType.DISCRETIZIED:
             if is_eval:
-                action_idx = torch.argmax(dist, 1)
+                action_idx = torch.argmax(dist, 1).view(-1,1)
             else:
                 action_idx = torch.multinomial(dist, 1)
             if self.env_name == 'LunarLanderContinuous-v2':
