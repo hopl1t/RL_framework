@@ -106,7 +106,7 @@ class DQNAgent:
 
                         predictions = self.model(states)
                         targets_full = predictions.detach().clone()
-                        targets_full.scatter_(-1, action_idxs.squeeze(-1), targets.float())
+                        targets_full.scatter_(-1, action_idxs.squeeze(-1).to(device), targets.float())
                         # predictions = self.predict(states, action_idxs).view(-1, 1)
                         optimizer.zero_grad()
                         loss = F.mse_loss(predictions, targets_full.float())

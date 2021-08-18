@@ -12,6 +12,17 @@ import gym_sokoban # Don't remove this
 import gym
 import random
 import torch.nn.functional as F
+try:
+    import matplotlib.pyplot as plt
+    from pyvirtualdisplay import Display
+    from gym.wrappers import Monitor
+    from IPython.display import HTML
+    from IPython import display as ipythondisplay
+    import glob
+    import io
+    import base64
+except ModuleNotFoundError as e:
+    sys.stdout.write('Cannot import one of the display modules: {}\nContinuing..\n'.format(e))
 
 
 class ObsType(Enum):
@@ -168,8 +179,60 @@ def print_stats(agent, episode, print_interval, tricks_used=0, steps_count=0):
                     np.mean(agent.all_times[-print_interval:]), tricks_used))
 
 
+def moving_average(iterable, window):
+    averages = []
+    for i in range(len(iterable)):
+        averages.append(np.mean(iterable[max(0, i-window):i]))
+    return averages
+
+
+def show_video():
+    mp4list = glob.glob('video/*.mp4')
+    if len(mp4list) > 0:
+        mp4 = mp4list[0]
+        video = io.open(mp4, 'r+b').read()
+        encoded = base64.b64encode(video)
+        ipythondisplay.display(HTML(data="""<video alt=\"test\" autoplay loop controls style=\"height: 400px;\"><source src=\"data:video/mp4;base64,{0}\" type=\"video/mp4\" /></video>""".format(encoded.decode('ascii'))))
+    else:
+        print("Could not find video")
+
+
+def wrap_env(env):
+    env = Monitor(env, './video', force=True)
+    return env
+
+
 def evaluate(agent, num_episodes, render, is_notebook=False):
-    pass
+    agent.model.eval()
+    all_rewards = []
+    all_episode_rewards = []
+    for epispode in num_episodes:
+        if render:
+            sys.stdout.write('Evaluating episode {}'.format(epispode))
+            agent.env.env = env_wrap(agent.env.env)
+        episode_rewards = []
+        obs = agent.env.reset()
+        done = False
+        while not done:
+            action = agent.act(obs)
+            obs, reward, done, info = agent.env.step(action, is_eval=True)
+            all_rewards.append(reward)
+        all_episode_rewards.append(np.mean(episode_rewards))
+        if render:
+            if is_notebook:
+                # plt.imshow(env.render('rgb_array'))
+                show_video()
+            else:
+                raise NotImplementedError
+        if is_notebook:
+            fig, axes = plt.subplots(1, 2, figsize=(7,7))
+            axes[0].plot(all_rewards)
+            axes[0].plot(moving_average(all_rewards))
+            axes[0].set_title('Rewards per step')
+            axes[1].plot(all_episode_rewards)
+            axes[1].plot(moving_average(all_episode_rewards))
+            axes[1].set_title('Rewards per episode')
+    agent.model.train()
 
 
 class EnvWrapper:
@@ -242,12 +305,11 @@ class EnvWrapper:
         elif action_type == ActionType.FIXED_LUNAR:
             self.num_actions = len(FIXED_ACTIONS)
 
-
     def reset(self):
         obs = self.env.reset()
         return self.process_obs(obs)
 
-    def step(self, action):
+    def step(self, action, is_eval=False):
         if self.action_type in [ActionType.REGULAR, ActionType.FIXED_LUNAR]:
             pass # No change if action type is regular
         elif self.action_type == ActionType.PUSH_ONLY:
@@ -265,7 +327,7 @@ class EnvWrapper:
         obs, reward, done, info = self.env.step(action)
         obs = self.process_obs(obs)
         info['used_trick'] = False
-        if self.cone_trick:
+        if self.cone_trick and not is_eval:
             x_pos = obs[0]
             y_pos = obs[1]
             alpha = math.atan2(y_pos, abs(x_pos))
@@ -273,7 +335,7 @@ class EnvWrapper:
                 reward -= self.trick_fine
                 done = True
                 info['used_trick'] = True
-        if self.move_trick:
+        if self.move_trick and not is_eval:
             # Don't penalize for regular steps when using move trick
             if reward == -0.1:
                 reward = 0
@@ -294,8 +356,10 @@ class EnvWrapper:
         elif self.obs_type == ObsType.ROOM_STATE_MATRIX:
             return self.env.room_state
 
-    def process_action(self, dist, policy_dist):
+    def process_action(self, dist, policy_dist, is_eval=False):
         if self.action_type == ActionType.GAUSSIAN:
+            if is_eval:
+                raise NotImplementedError
             detached_mu = dist[0]
             detached_sigma = dist[1]
             attached_mu = policy_dist[0]
@@ -306,7 +370,10 @@ class EnvWrapper:
             entropy = action_dist.entropy().detach().sum()
             action = action.detach()
         elif self.action_type == ActionType.DISCRETIZIED:
-            action_idx = torch.multinomial(dist, 1)
+            if is_eval:
+                action_idx = torch.argmax(dist, 1)
+            else:
+                action_idx = torch.multinomial(dist, 1)
             if self.env_name == 'LunarLanderContinuous-v2':
                 action = torch.stack((self.discrete_array[action_idx[0]], self.split_discrete_array[action_idx[1]]))
             else:
@@ -314,12 +381,18 @@ class EnvWrapper:
             log_prob = torch.log(torch.gather(policy_dist, 1, action_idx).squeeze(1))
             entropy = Categorical(probs=dist).entropy().sum()
         elif self.action_type == ActionType.FIXED_LUNAR:
-            action_idx = torch.multinomial(dist, 1).item()
+            if is_eval:
+                action_idx = torch.argmax(dist, 1).item()
+            else:
+                action_idx = torch.multinomial(dist, 1).item()
             action = FIXED_ACTIONS[action_idx]
             log_prob = torch.log(policy_dist[action_idx])
             entropy = Categorical(probs=dist).entropy()
         else:
-            action = torch.multinomial(dist, 1).item()
+            if is_eval:
+                action = torch.argmax(dist, 1).item()
+            else:
+                action = torch.multinomial(dist, 1).item()
             log_prob = torch.log(policy_dist[action])
             entropy = Categorical(probs=dist).entropy()
         return action, log_prob, entropy

@@ -17,7 +17,7 @@ class A2CAgent:
 
     def __init__(self, model, save_path, log_path, **kwargs):
         self.model = model
-        self.env = gym.Env
+        self.env = utils.EnvWrapper
         self.kwargs = kwargs
         self.save_path = save_path
         self.log_path = log_path
@@ -143,7 +143,6 @@ class A2CAgent:
     def act(self, state):
         self.model.eval()
         _, policy_dist = self.model.forward(state)
-        dist = policy_dist.detach().squeeze(0)
-        action = torch.multinomial(dist, 1).item()
+        action, _, _ = self.env.process_action(policy_dist.detach().squeeze(0), policy_dist.squeeze(0), is_eval=True)
         self.model.train()
         return action
