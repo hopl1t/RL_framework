@@ -407,9 +407,9 @@ class EnvWrapper:
         """
         if eps: # epsilon greedy option
             if np.random.rand() <= eps:
-                action_idx = torch.randint(0, q_vals.shape[-1], (q_vals.shape[0], 1))
+                action_idx = torch.randint(0, q_vals.shape[-1], (q_vals.shape[0], 1)).to(q_vals.device)
             else:
-                action_idx = torch.argmax(q_vals, axis=-1).view(q_vals.shape[0], -1)
+                action_idx = torch.argmax(q_vals, axis=-1).view(q_vals.shape[0], -1).to(q_vals.device)
         else: # epsilon soft option
             activated = F.softmax(q_vals, dim=1)
             action_idx = torch.multinomial(activated, 1)
