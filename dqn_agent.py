@@ -57,6 +57,8 @@ class DQNAgent:
         self.model.train()
         optimizer = optim.Adam(self.model.parameters(), lr=lr)
         scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=scheduler_gamma)
+        tricks_used = 0
+        steps_count = 0
 
         for episode in range(epochs):
             ep_start_time = time.time()
@@ -67,7 +69,7 @@ class DQNAgent:
             experience = []
 
             for step in range(self.env.max_steps):
-
+                steps_count += 1
                 with torch.no_grad():
                     q_vals = self.model.forward(state)
                     action, action_idx = self.env.on_policy(q_vals, epsilon)
@@ -89,6 +91,8 @@ class DQNAgent:
                 state = new_state.copy()
                 if step == self.env.max_steps - 1:
                     done = True
+                if info['used_trick']:
+                    tricks_used += 1
                 traj_rewards.append(reward)
                 episode_rewards.append(reward)
                 if log_interval: # ie if to log at all
@@ -128,7 +132,9 @@ class DQNAgent:
                             print('='*10, 'episode {}, Last 100 episodes averaged 200 points '.format(episode), '='*10)
                             return
                         if (episode % print_interval == 0) and episode != 0:
-                            utils.print_stats(self, episode, print_interval)
+                            utils.print_stats(self, episode, print_interval, tricks_used, steps_count)
+                            tricks_used = 0
+                            steps_count = 0
                         if (episode % scheduler_interval == 0) and (episode != 0):
                             scheduler.step()
                             sys.stdout.write('stepped scheduler, new lr: {:.5f}\n'.format(scheduler.get_last_lr()[0]))

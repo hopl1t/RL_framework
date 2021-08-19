@@ -196,7 +196,8 @@ def evaluate(agent, num_episodes=1, render=True):
             action = agent.act(obs)
             obs, reward, done, info = agent.env.step(action, is_eval=True)
             if 'all_boxes_on_target' in info.keys():
-                completed_sokoban_levels += 1
+                if info['all_boxes_on_target']:
+                    completed_sokoban_levels += 1
             all_rewards.append(reward)
             episode_rewards.append(reward)
         all_episode_rewards.append(np.sum(episode_rewards))
