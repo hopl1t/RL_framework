@@ -136,13 +136,14 @@ class DQNAgent:
                             utils.save_agent(self)
                         if log_interval and (episode % log_interval == 0) and (episode != 0):
                             utils.log(self)
-                        if (episode % eval_interval == 0) and (eval_interval != 0):
-                            _, all_episode_rewards, completed_sokoban_levels = utils.evaluate(self, 100, render=False)
-                            utils.print_eval(all_episode_rewards, completed_sokoban_levels)
-                            if np.mean(all_episode_rewards) >= 200:
-                                sys.stdout.write('{0} episode {1}, Last 100 eval episodes averaged 200 points {0}\n'
-                                                 .format('*' * 10, episode))
-                                return
+                        if eval_interval:
+                            if episode % eval_interval == 0:
+                                _, all_episode_rewards, completed_sokoban_levels = utils.evaluate(self, 100, render=False)
+                                utils.print_eval(all_episode_rewards, completed_sokoban_levels)
+                                if np.mean(all_episode_rewards) >= 200:
+                                    sys.stdout.write('{0} episode {1}, Last 100 eval episodes averaged 200 points {0}\n'
+                                                     .format('*' * 10, episode))
+                                    return
                         break
 
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')
