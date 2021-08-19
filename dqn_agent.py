@@ -145,10 +145,8 @@ class DQNAgent:
             utils.log(self)
 
     def act(self, state):
-        self.model.eval()
-        policy_dist = self.model.forward(state)
-        action, _, _ = self.env.process_action(policy_dist.detach().squeeze(0), policy_dist.squeeze(0), is_eval=True)
-        self.model.train()
+        q_vals = self.model.forward(state)
+        action, _ = self.env.on_policy(q_vals, eps=0, is_eval=True)
         return action
 
     def get_delta(self, q_vals, action_idx, target):

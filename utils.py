@@ -365,15 +365,18 @@ class EnvWrapper:
             entropy = Categorical(probs=dist).entropy()
         return action, log_prob, entropy
 
-    def on_policy(self, q_vals, eps=0):
+    def on_policy(self, q_vals, eps=0, is_eval=False):
         """
-        Returns on policy (epsilon soft) action for a DQN net
+        Returns on policy (epsilon soft or greedy) action for a DQN net
         Returns epsilon soft by default. If eps is specified will return epsilon greedy
         with the given eps value.
         :param q_vals: Tensor - q values per action
         :return: Int - action to take
         """
-        if eps: # epsilon greedy option
+        if is_eval:
+            # in evaluation take the best action you can do..
+            action_idx = torch.argmax(q_vals, axis=-1).view(q_vals.shape[0], -1).to(q_vals.device)
+        elif eps: # epsilon greedy option
             if np.random.rand() <= eps:
                 action_idx = torch.randint(0, q_vals.shape[-1], (q_vals.shape[0], 1)).to(q_vals.device)
             else:
