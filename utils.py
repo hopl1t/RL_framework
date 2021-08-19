@@ -14,16 +14,9 @@ import random
 import os
 import torch.nn.functional as F
 try:
-    import matplotlib.pyplot as plt
-    from pyvirtualdisplay import Display
     from gym.wrappers import Monitor
-    from IPython.display import HTML
-    from IPython import display as ipythondisplay
-    import glob
-    import io
-    import base64
 except ModuleNotFoundError as e:
-    sys.stdout.write('Cannot import one of the display modules: {}\nContinuing..\n'.format(e))
+    sys.stdout.write('Cannot import Monitor module, rendering won\'t be possible: {}\nContinuing..\n'.format(e))
 
 
 class ObsType(Enum):
@@ -180,10 +173,18 @@ def print_stats(agent, episode, print_interval, tricks_used=0, steps_count=0):
                     np.mean(agent.all_times[-print_interval:]), tricks_used))
 
 
+def print_eval(all_episode_rewards, completed_sokoban_levels):
+    sys.stdout.write('{0} Evaluation {0}'.format('*' * 10))
+    sys.stdout.write('\nEvaluation on last 100 episodes:\tmean: {:.3f}\tmin: {:.3f}\t\tmax: {:.3f}\t\t'
+                     '%completed levels (sokoban only): {:.3f}\n'.format(np.mean(all_episode_rewards),
+                     np.min(all_episode_rewards), np.max(all_episode_rewards), completed_sokoban_levels / 100))
+
+
 def evaluate(agent, num_episodes=1, render=True):
     agent.model.eval()
     all_rewards = []
     all_episode_rewards = []
+    completed_sokoban_levels = 0
     for epispode in range(num_episodes):
         if render:
             sys.stdout.write('Saving render video to {}\n'.format(os.path.join(os.getcwd(), 'video')))
@@ -194,13 +195,15 @@ def evaluate(agent, num_episodes=1, render=True):
         while not done:
             action = agent.act(obs)
             obs, reward, done, info = agent.env.step(action, is_eval=True)
+            if 'all_boxes_on_target' in info.keys():
+                completed_sokoban_levels += 1
             all_rewards.append(reward)
             episode_rewards.append(reward)
-        all_episode_rewards.append(np.mean(episode_rewards))
+        all_episode_rewards.append(np.sum(episode_rewards))
     if render:
         agent.env.env.close()
     agent.model.train()
-    return all_rewards, all_episode_rewards
+    return all_rewards, all_episode_rewards, completed_sokoban_levels
 
 
 class EnvWrapper:
@@ -358,7 +361,7 @@ class EnvWrapper:
             entropy = Categorical(probs=dist).entropy()
         else:
             if is_eval:
-                action = torch.argmax(dist, 1).item()
+                action = torch.argmax(dist, -1).item()
             else:
                 action = torch.multinomial(dist, 1).item()
             log_prob = torch.log(policy_dist[action])

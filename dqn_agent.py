@@ -34,7 +34,7 @@ class DQNAgent:
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
               save_interval=10000, scheduler_interval=1000, no_per=False, no_cuda=False, epsilon=0,
-              epsilon_decay=0.997, **kwargs):
+              epsilon_decay=0.997, eval_interval=0, **kwargs):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -119,7 +119,8 @@ class DQNAgent:
                         self.all_rewards.append(np.sum(episode_rewards))
                         self.all_lengths.append(step)
                         if np.mean(self.all_rewards[-100:]) >= 200:
-                            print('='*10, 'episode {}, Last 100 episodes averaged 200 points '.format(episode), '='*10)
+                            sys.stdout.write('{0} episode {1}, Last 100 train episodes averaged 200 points {0}\n'
+                                             .format('*' * 10, episode))
                             return
                         if epsilon > EPSILON_MIN:
                             epsilon *= epsilon_decay
@@ -135,6 +136,13 @@ class DQNAgent:
                             utils.save_agent(self)
                         if log_interval and (episode % log_interval == 0) and (episode != 0):
                             utils.log(self)
+                        if (episode % eval_interval == 0) and (eval_interval != 0):
+                            _, all_episode_rewards, completed_sokoban_levels = utils.evaluate(self, 100, render=False)
+                            utils.print_eval(all_episode_rewards, completed_sokoban_levels)
+                            if np.mean(all_episode_rewards) >= 200:
+                                sys.stdout.write('{0} episode {1}, Last 100 eval episodes averaged 200 points {0}\n'
+                                                 .format('*' * 10, episode))
+                                return
                         break
 
         sys.stdout.write('-' * 10 + ' Finished training ' + '-' * 10 + '\n')

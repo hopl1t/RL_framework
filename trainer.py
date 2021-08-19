@@ -54,6 +54,8 @@ def main(raw_args):
     parser.add_argument('-max_len', type=int, nargs='?', help='Maximal steps for a single episode', default=5000)
     parser.add_argument('-hidden_size', type=int, nargs='?', help='Size of largest hidden layer', default=512)
     parser.add_argument('-save_interval', type=int, nargs='?', help='Save every x episodes', default=10000)
+    parser.add_argument('-eval_interval', type=int, nargs='?', help='Evaluate model every x steps.'
+                                                                    ' 0 is don\'t eval during training', default=0)
     parser.add_argument('-stop_trick_at', type=int, nargs='?', help='Stop the trick after this epoch.'
                                                                     '0 is don\'t stop', default=0)
     parser.add_argument('-async_sleep_interval', type=float, nargs='?', help='How long should the env gen thread sleep',
@@ -101,7 +103,7 @@ def main(raw_args):
                     args.print_interval, args.log_interval, scheduler_interval=args.scheduler_interval,
                     clip_gradient=args.clip_gradient, no_per=args.no_PER, stop_trick_at=args.stop_trick_at,
                     no_cuda=args.no_cuda, save_interval=args.save_interval, epsilon=args.epsilon,
-                    epsilon_decay=args.epsilon_decay)
+                    epsilon_decay=args.epsilon_decay, eval_interval=args.eval_interval)
     except Exception as e:
         raise e
     finally:
