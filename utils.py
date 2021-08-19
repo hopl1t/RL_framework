@@ -180,16 +180,13 @@ def print_stats(agent, episode, print_interval, tricks_used=0, steps_count=0):
                     np.mean(agent.all_times[-print_interval:]), tricks_used))
 
 
-def evaluate(agent, env_name, obs_type, action_type, num_discrete=1, num_episodes=1, render=True):
+def evaluate(agent, num_episodes=1, render=True):
     agent.model.eval()
-    env_wrapper = EnvWrapper(env_name, obs_type, action_type, 5000, num_discrete=num_discrete,
-                     cone_trick=False, move_trick=False, trick_fine=False)
     all_rewards = []
     all_episode_rewards = []
     for epispode in range(num_episodes):
         if render:
             sys.stdout.write('Saving render video to {}\n'.format(os.path.join(os.getcwd(), 'video')))
-            # env_wrapper.env = Monitor(env_wrapper.env, './video', force=True)
             agent.env.env = Monitor(agent.env.env, './video', force=True)
         episode_rewards = []
         obs = agent.env.reset()
@@ -200,6 +197,8 @@ def evaluate(agent, env_name, obs_type, action_type, num_discrete=1, num_episode
             all_rewards.append(reward)
             episode_rewards.append(reward)
         all_episode_rewards.append(np.mean(episode_rewards))
+    if render:
+        agent.env.env.close()
     agent.model.train()
     return all_rewards, all_episode_rewards
 
