@@ -120,6 +120,7 @@ class A2CAgent:
                         if np.mean(self.all_rewards[-100:]) >= 200:
                             sys.stdout.write('{0} episode {1}, Last 100 train episodes averaged 200 points {0}\n'
                                              .format('*' * 10, episode))
+                            utils.save_agent(self)
                             return
                         if (episode % print_interval == 0) and episode != 0:
                             utils.print_stats(self, episode, print_interval, tricks_used, steps_count)
@@ -139,6 +140,7 @@ class A2CAgent:
                                 if np.mean(all_episode_rewards) >= 200:
                                     sys.stdout.write('{0} episode {1}, Last 100 eval episodes averaged 200 points {0}\n'
                                                      .format('*' * 10, episode))
+                                    utils.save_agent(self)
                                     return
                         break
 

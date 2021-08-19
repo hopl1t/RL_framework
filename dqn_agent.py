@@ -74,20 +74,11 @@ class DQNAgent:
                     q_vals = self.model.forward(state)
                     action, action_idx = self.env.on_policy(q_vals, epsilon)
                     new_state, reward, done, info = self.env.step(action)
-
-                    ##### WORK IN PROGRESS
                     new_q_vals = self.model.forward(new_state).detach()
                     new_q = self.env.off_policy(new_q_vals)
-                    # if not done:
-                    #     new_q_vals = self.model.forward(new_state).detach()
-                    #     new_q = self.env.off_policy(new_q_vals)
-                    # else:
-                    #     new_q = self.get_zero_q().to(self.model.device)
                 target = (reward + discount_gamma * new_q).view(1, -1, 1)
                 delta = self.get_delta(q_vals, action_idx, target)
-                ##### WORK
                 experience.append((state, action_idx, reward, new_state, done, delta))
-                # experience.append((state, action_idx, reward, new_q, delta))
                 state = new_state.copy()
                 if step == self.env.max_steps - 1:
                     done = True
@@ -111,11 +102,8 @@ class DQNAgent:
                         predictions = self.model(states)
                         targets_full = predictions.detach().clone()
                         targets_full.scatter_(-1, action_idxs.squeeze(-1).to(device), targets.float())
-                        # predictions = self.predict(states, action_idxs).view(-1, 1)
                         optimizer.zero_grad()
                         loss = F.mse_loss(predictions, targets_full.float())
-                        # loss = F.mse_loss(predictions, targets.float())
-                        # loss = -F.smooth_l1_loss(predictions, targets.float()) # Huber Loss
                         loss.backward()
                         optimizer.step()
                     if done:
@@ -125,6 +113,7 @@ class DQNAgent:
                         if np.mean(self.all_rewards[-100:]) >= 200:
                             sys.stdout.write('{0} episode {1}, Last 100 train episodes averaged 200 points {0}\n'
                                              .format('*' * 10, episode))
+                            utils.save_agent(self)
                             return
                         if epsilon > EPSILON_MIN:
                             epsilon *= epsilon_decay
@@ -149,6 +138,7 @@ class DQNAgent:
                                 if np.mean(all_episode_rewards) >= 200:
                                     sys.stdout.write('{0} episode {1}, Last 100 eval episodes averaged 200 points {0}\n'
                                                      .format('*' * 10, episode))
+                                    utils.save_agent(self)
                                     return
                         break
 
