@@ -354,7 +354,7 @@ class EnvWrapper:
             entropy = Categorical(probs=dist).entropy().sum()
         elif self.action_type == ActionType.FIXED_LUNAR:
             if is_eval:
-                action_idx = torch.argmax(dist, 1).item()
+                action_idx = torch.argmax(dist, -1).item()
             else:
                 action_idx = torch.multinomial(dist, 1).item()
             action = FIXED_ACTIONS[action_idx]
