@@ -193,8 +193,9 @@ def evaluate(agent, num_episodes=1, render=True):
         obs = agent.env.reset()
         done = False
         while not done:
-            action = agent.act(obs)
-            obs, reward, done, info = agent.env.step(action, is_eval=True)
+            with torch.no_grad():
+                action = agent.act(obs)
+                obs, reward, done, info = agent.env.step(action, is_eval=True)
             if 'all_boxes_on_target' in info.keys():
                 if info['all_boxes_on_target']:
                     completed_sokoban_levels += 1

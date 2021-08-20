@@ -34,7 +34,7 @@ class DQNAgent:
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
               save_interval=10000, scheduler_interval=1000, no_per=False, no_cuda=False, epsilon=0,
-              epsilon_decay=0.997, eval_interval=0, stop_trick_at=0, **kwargs):
+              epsilon_decay=0.997, eval_interval=0, stop_trick_at=0, batch_size=64, **kwargs):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -95,14 +95,13 @@ class DQNAgent:
 
                 if done or ((step % trajectory_len == 0) and step != 0):
                     dataset = utils.PERDataLoader(experience, use_per=(not no_per))
-                    dataloader = DataLoader(dataset, batch_size=min(len(dataset), 64), shuffle=True)
+                    dataloader = DataLoader(dataset, batch_size=min(len(dataset), batch_size), shuffle=True)
                     for states, action_idxs, rewards, new_states, dones in dataloader:
                         with torch.no_grad():
                             new_qs = self.model(new_states)
                             off_policy = self.env.off_policy(new_qs)
                             off_policy *= (1 - dones.int().to(device)) # Q=0 where action leads to end of episode
                         targets = (rewards.to(device) + discount_gamma * off_policy).view(-1, 1)
-
                         predictions = self.model(states)
                         targets_full = predictions.detach().clone()
                         targets_full.scatter_(-1, action_idxs.squeeze(-1).to(device), targets.float())
@@ -159,7 +158,6 @@ class DQNAgent:
         return action
 
     def get_delta(self, q_vals, action_idx, target):
-        # TODO: replace with .view(1,-1,1)
         if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
             delta = abs(q_vals.detach().squeeze(0)[action_idx] - target) + 0.001
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
@@ -169,23 +167,16 @@ class DQNAgent:
         return delta
 
     def predict(self, state, action_idx):
-        # TODO: replace with .view(1,-1,1)
         q_vals = self.model.forward(state)
         if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
-            # prediction = q_vals.squeeze(0)[action_idx].unsqueeze(0).unsqueeze(0)
-            # prediction = q_vals.squeeze(0)[action_idx].view(1, -1, 1) # (1,1,1)
             prediction = q_vals.gather(-1, action_idx.squeeze(-1)).view(1, -1, 1)
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
-            # prediction = torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)]).unsqueeze(0)
             prediction = q_vals.gather(-1,action_idx.squeeze(0))
-                # torch.stack([q_vals[i][action_idx[i]] for i in range(self.env.num_actions)])\
-                # .view(1, -1, 1) # .view(1, self.env.num_actions, 1)
         else:
             raise NotImplementedError
         return prediction
 
     def get_zero_q(self):
-        # TODO: replace with .view(1,-1,1)
         if self.env.action_type in [utils.ActionType.REGULAR, utils.ActionType.FIXED_LUNAR]:
             zeros = torch.zeros(1, dtype=torch.float32).squeeze(0)
         elif self.env.action_type == utils.ActionType.DISCRETIZIED:
