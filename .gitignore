@@ -1,7 +1,5 @@
 .idea
 logs
-saved_agents
 __pycache__/
 *.py[cod]
 notebooks/.ipynb_checkpoints/*
-video/*
