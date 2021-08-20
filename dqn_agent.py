@@ -34,7 +34,7 @@ class DQNAgent:
     def train(self, epochs: int, trajectory_len: int, env_gen: utils.AsyncEnvGen, lr=1e-4,
               discount_gamma=0.99, scheduler_gamma=0.98, beta=1e-3, print_interval=1000, log_interval=1000,
               save_interval=10000, scheduler_interval=1000, no_per=False, no_cuda=False, epsilon=0,
-              epsilon_decay=0.997, eval_interval=0, **kwargs):
+              epsilon_decay=0.997, eval_interval=0, stop_trick_at=0, **kwargs):
         """
         Trains the model
         :param epochs: int, number of epochs to run
@@ -62,9 +62,13 @@ class DQNAgent:
 
         for episode in range(epochs):
             ep_start_time = time.time()
-            episode_rewards = []
+            episode_rewards, traj_rewards = [], []
             state, self.env = env_gen.get_reset_env()
-            traj_log_probs, traj_values, traj_rewards = [], [], []
+            if stop_trick_at and episode >= stop_trick_at:
+                self.env.cone_trick = False
+                self.env.move_trick = False
+                if episode == stop_trick_at:
+                    sys.stdout.write('Stopped using trick\n')
 
             experience = []
 

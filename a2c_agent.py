@@ -63,10 +63,11 @@ class A2CAgent:
             state, self.env = env_gen.get_reset_env()
             traj_log_probs, traj_values, traj_rewards = [], [], []
             traj_entropy_term = torch.zeros(1).to(device)
-            if stop_trick_at and episode == stop_trick_at:
+            if stop_trick_at and episode >= stop_trick_at:
                 self.env.cone_trick = False
                 self.env.move_trick = False
-                sys.stdout.write('Stopped using trick\n')
+                if episode == stop_trick_at:
+                    sys.stdout.write('Stopped using trick\n')
 
             for step in range(self.env.max_steps):
                 steps_count += 1
